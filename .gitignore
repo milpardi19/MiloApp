@@ -1,0 +1,42 @@
+# dependencies
+node_modules/
+
+# expo
+.expo/
+dist/
+dist-turkish/
+web-build/
+expo-env.d.ts
+android/
+ios/
+
+# native
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macos
+.DS_Store
+*.pem
+
+# local env files
+.env*.local
+.env
+
+# typescript
+*.tsbuildinfo
+# generated narration output
+/audio-manifest.json
+/audio-manifest.json.generated.json
+/generated-audio/

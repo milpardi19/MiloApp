@@ -1,0 +1,236 @@
+// Multiple-choice quiz screen — auto-generated from the lesson's words.
+
+import React, { useEffect, useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import Trophy from 'lucide-react-native/dist/esm/icons/trophy';
+import ArrowRight from 'lucide-react-native/dist/esm/icons/arrow-right';
+import ChevronRight from 'lucide-react-native/dist/esm/icons/chevron-right';
+import RotateCcw from 'lucide-react-native/dist/esm/icons/rotate-ccw';
+import Star from 'lucide-react-native/dist/esm/icons/star';
+import { Colors, Typography, Spacing, Radius } from '@/lib/theme';
+import { toPersianDigits } from '@/lib/format';
+import { getLesson, type LangWord } from '@/lib/langContent';
+import { recordQuizAnswer } from '@/lib/langProgress';
+import { AgentTopBar, ProgressBar } from '@/components/LangShared';
+import { EnglishPalette as Palette } from '@/components/EnglishSupplementTask';
+
+const QUESTION_COUNT = 8;
+
+interface Question {
+  word: LangWord;
+  wordIndex: number;
+  options: LangWord[];
+}
+
+function buildQuestions(lessonId: number): Question[] {
+  const lesson = getLesson(lessonId);
+  const pool = lesson.words.map((word, i) => ({ word, i }));
+  // shuffle
+  for (let k = pool.length - 1; k > 0; k--) {
+    const j = Math.floor(Math.random() * (k + 1));
+    [pool[k], pool[j]] = [pool[j], pool[k]];
+  }
+  const pick = pool.slice(0, Math.min(QUESTION_COUNT, pool.length));
+
+  return pick.map(({ word, i }) => {
+    const others = lesson.words.filter((w) => w.en !== word.en);
+    const shuffled = [...others];
+    for (let k = shuffled.length - 1; k > 0; k--) {
+      const j = Math.floor(Math.random() * (k + 1));
+      [shuffled[k], shuffled[j]] = [shuffled[j], shuffled[k]];
+    }
+    const options = [word, ...shuffled.slice(0, 3)];
+    for (let k = options.length - 1; k > 0; k--) {
+      const j = Math.floor(Math.random() * (k + 1));
+      [options[k], options[j]] = [options[j], options[k]];
+    }
+    return { word, wordIndex: i, options };
+  });
+}
+
+export default function QuizScreen() {
+  const router = useRouter();
+  const params = useLocalSearchParams<{ lessonId?: string }>();
+  const lessonId = Math.max(1, Math.min(12, parseInt(String(params.lessonId ?? '1'), 10) || 1));
+  const lesson = getLesson(lessonId);
+
+  const [questions, setQuestions] = useState<Question[]>(() => buildQuestions(lessonId));
+  const [qi, setQi] = useState(0);
+  const [answersByIndex, setAnswersByIndex] = useState<Record<number, number>>({});
+  const [correctCount, setCorrectCount] = useState(0);
+  const [finished, setFinished] = useState(false);
+
+  useEffect(() => {
+    setQuestions(buildQuestions(lessonId));
+    setQi(0);
+    setAnswersByIndex({});
+    setCorrectCount(0);
+    setFinished(false);
+  }, [lessonId]);
+
+  const question = questions[qi];
+  const selected = answersByIndex[qi] ?? null;
+  const total = questions.length;
+
+  const pick = async (idx: number) => {
+    if (selected !== null) return;
+    setAnswersByIndex((prev) => ({ ...prev, [qi]: idx }));
+    const correct = question.options[idx].en === question.word.en;
+    if (correct) setCorrectCount((c) => c + 1);
+    await recordQuizAnswer(lessonId, question.wordIndex, correct);
+  };
+
+  const previous = () => {
+    if (qi > 0) setQi((i) => i - 1);
+  };
+
+  const next = () => {
+    if (qi + 1 >= total) {
+      setFinished(true);
+    } else {
+      setQi((i) => i + 1);
+    }
+  };
+
+  const xp = correctCount * 10;
+  const stars = correctCount >= total * 0.9 ? 3 : correctCount >= total * 0.6 ? 2 : correctCount >= total * 0.3 ? 1 : 0;
+
+  if (finished) {
+    return (
+      <View style={styles.root}>
+        <AgentTopBar title={`آزمون درس ${toPersianDigits(lessonId)}`} subtitle={lesson.title} alignRight backFallback="/lang" />
+        <View style={styles.finishWrap}>
+          <LinearGradient colors={lesson.gradient} style={styles.trophyBadge}>
+            <Trophy size={40} color={Colors.onColor} strokeWidth={2.2} />
+          </LinearGradient>
+
+          <View style={styles.starRow}>
+            {[0, 1, 2].map((i) => (
+              <Star
+                key={i}
+                size={34}
+                color={i < stars ? Colors.warning[400] : Colors.neutral[700]}
+                strokeWidth={1.8}
+                fill={i < stars ? Colors.warning[400] : 'transparent'}
+              />
+            ))}
+          </View>
+
+          <Text style={styles.finishTitle}>آزمون تمام شد!</Text>
+          <Text style={styles.finishScore}>
+            {toPersianDigits(correctCount)} از {toPersianDigits(total)} پاسخ درست
+          </Text>
+          <Text style={styles.finishXp}>+{toPersianDigits(xp)} امتیاز</Text>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="شروع دوبارهٔ آزمون درس"
+            style={[styles.finishBtn, { backgroundColor: lesson.color }]}
+            onPress={() => {
+              setQuestions(buildQuestions(lessonId));
+              setQi(0);
+              setAnswersByIndex({});
+              setCorrectCount(0);
+              setFinished(false);
+            }}
+          >
+            <RotateCcw size={18} color={Colors.onColor} strokeWidth={2.3} />
+            <Text style={styles.finishBtnText}>تلاش دوباره</Text>
+          </Pressable>
+
+          <Pressable accessibilityRole="button" accessibilityLabel="بازگشت به فهرست درس‌ها" style={[styles.finishBtn, { backgroundColor: Palette.surfaceMuted, borderWidth: 1, borderColor: Palette.border }]} onPress={() => router.back()}>
+            <ArrowRight size={18} color={Palette.primaryDark} strokeWidth={2.3} />
+            <Text style={[styles.finishBtnText, { color: Palette.primaryDark }]}>بازگشت</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  if (!question) return <View style={styles.root} />;
+
+  return (
+    <View style={styles.root}>
+      <AgentTopBar title={`آزمون درس ${toPersianDigits(lessonId)}`} subtitle={`سؤال ${toPersianDigits(qi + 1)} از ${toPersianDigits(total)}`} alignRight backFallback="/lang" />
+
+      <View style={styles.progressWrap}>
+        <ProgressBar value={(qi + (selected !== null ? 1 : 0)) / total} color={lesson.color} />
+      </View>
+
+      <View style={styles.qWrap}>
+        <Text style={styles.qLabel}>معنی این واژه چیست؟</Text>
+        <Text style={styles.qWord}>{question.word.en}</Text>
+
+        <View style={styles.optionsWrap}>
+          {question.options.map((opt, idx) => {
+            const isCorrect = opt.en === question.word.en;
+            const isSelected = selected === idx;
+            const showResult = selected !== null;
+            const optionStyle = [
+              styles.option,
+              showResult && isCorrect && styles.optionCorrect,
+              showResult && isSelected && !isCorrect && styles.optionWrong,
+            ];
+            const optionTextStyle = [
+              styles.optionText,
+              showResult && isCorrect && { color: Palette.success },
+              showResult && isSelected && !isCorrect && { color: Palette.danger },
+            ];
+            return (
+              <Pressable key={idx} accessibilityRole="button" accessibilityLabel={`گزینهٔ ${toPersianDigits(idx + 1)}: ${opt.fa}`} accessibilityState={{ selected: isSelected, disabled: selected !== null }} style={optionStyle} onPress={() => pick(idx)} disabled={selected !== null}>
+                <Text style={styles.optionBadge}>{toPersianDigits(idx + 1)}</Text>
+                <Text style={optionTextStyle}>{opt.fa}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {(qi > 0 || selected !== null) ? (
+          <View style={styles.quizNavRow}>
+            {qi > 0 ? (
+              <Pressable accessibilityRole="button" accessibilityLabel="رفتن به سؤال قبلی" style={styles.prevBtn} onPress={previous}>
+                <ChevronRight size={18} color={Palette.primaryDark} strokeWidth={2.4} />
+                <Text style={styles.prevBtnText}>سؤال قبلی</Text>
+              </Pressable>
+            ) : null}
+            {selected !== null ? (
+              <Pressable accessibilityRole="button" accessibilityLabel={qi + 1 >= total ? 'نمایش نتیجهٔ آزمون' : 'رفتن به سؤال بعدی'} style={[styles.nextBtn, { backgroundColor: lesson.color }]} onPress={next}>
+                <Text style={styles.nextBtnText}>{qi + 1 >= total ? 'نمایش نتیجه' : 'سؤال بعدی'}</Text>
+                <ArrowRight size={18} color={Colors.onColor} strokeWidth={2.4} />
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: Palette.canvas },
+  progressWrap: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg },
+  qWrap: { flex: 1, padding: Spacing.xl, gap: Spacing.lg, margin: Spacing.lg, backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border, shadowColor: '#172033', shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
+  qLabel: { alignSelf: 'stretch', fontFamily: Typography.fontFamily, fontSize: Typography.sizes.md, color: Palette.muted, textAlign: 'right', writingDirection: 'rtl' },
+  qWord: { alignSelf: 'stretch', fontFamily: Typography.latinFontFamily, fontSize: 38, fontWeight: '800', color: Palette.ink, textAlign: 'left', writingDirection: 'ltr' },
+  optionsWrap: { gap: Spacing.sm, marginTop: Spacing.md },
+  option: { flexDirection: 'row-reverse', alignItems: 'center', gap: Spacing.md, backgroundColor: Palette.surface, borderRadius: Radius.lg, borderWidth: 1.5, borderColor: Palette.border, paddingVertical: Spacing.md, paddingHorizontal: Spacing.lg },
+  optionCorrect: { backgroundColor: Palette.successSoft, borderColor: Palette.success },
+  optionWrong: { backgroundColor: Palette.dangerSoft, borderColor: Palette.danger },
+  optionBadge: { width: 30, height: 30, borderRadius: 15, backgroundColor: Palette.surfaceMuted, textAlign: 'center', textAlignVertical: 'center', fontFamily: Typography.fontFamily, fontSize: Typography.sizes.sm, fontWeight: Typography.weights.bold, color: Palette.text, lineHeight: 30 },
+  optionText: { flex: 1, fontFamily: Typography.fontFamily, fontSize: Typography.sizes.lg, fontWeight: Typography.weights.medium, color: Palette.ink, textAlign: 'right', writingDirection: 'rtl' },
+  quizNavRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 10, marginTop: Spacing.md },
+  prevBtn: { minHeight: 50, flexDirection: 'row-reverse', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: Spacing.md, borderRadius: 15, backgroundColor: Palette.surfaceMuted, borderWidth: 1, borderColor: Palette.border },
+  prevBtnText: { fontFamily: Typography.fontFamily, fontSize: Typography.sizes.sm, fontWeight: Typography.weights.bold, color: Palette.primaryDark, writingDirection: 'rtl' },
+  nextBtn: { flex: 1, minHeight: 50, flexDirection: 'row-reverse', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: Spacing.md, borderRadius: 15 },
+  nextBtnText: { fontFamily: Typography.fontFamily, fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold, color: Colors.onColor, writingDirection: 'rtl', textAlign: 'center' },
+  finishWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.xl, margin: Spacing.lg, gap: Spacing.lg, backgroundColor: Palette.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border, shadowColor: '#172033', shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 2 },
+  trophyBadge: { width: 96, height: 96, borderRadius: 48, justifyContent: 'center', alignItems: 'center' },
+  starRow: { flexDirection: 'row-reverse', gap: 8 },
+  finishTitle: { alignSelf: 'stretch', fontFamily: Typography.fontFamily, fontSize: Typography.sizes.xxl, fontWeight: Typography.weights.bold, color: Palette.ink, textAlign: 'right', writingDirection: 'rtl' },
+  finishScore: { alignSelf: 'stretch', fontFamily: Typography.fontFamily, fontSize: Typography.sizes.lg, color: Palette.text, textAlign: 'right', writingDirection: 'rtl' },
+  finishXp: { alignSelf: 'stretch', fontFamily: Typography.fontFamily, fontSize: Typography.sizes.xl, fontWeight: Typography.weights.bold, color: Palette.success, textAlign: 'right', writingDirection: 'rtl' },
+  finishBtn: { flexDirection: 'row-reverse', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: Spacing.md, paddingHorizontal: Spacing.xl, borderRadius: Radius.lg, alignSelf: 'stretch' },
+  finishBtnText: { fontFamily: Typography.fontFamily, fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold, color: Colors.onColor, writingDirection: 'rtl', textAlign: 'center' },
+});
