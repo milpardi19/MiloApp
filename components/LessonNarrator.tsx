@@ -48,10 +48,13 @@ export function LessonNarrator({
       halo.setValue(0);
       return;
     }
+    // Opacity + transform only, so the halo runs on the native driver: a JS
+    // driven loop kept the JS thread busy for the whole "loading"/"speaking"
+    // period, which is a large part of the "lesson feels frozen" reports.
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(halo, { toValue: 1, duration: 900, easing: Easing.out(Easing.ease), useNativeDriver: false }),
-        Animated.timing(halo, { toValue: 0, duration: 900, easing: Easing.in(Easing.ease), useNativeDriver: false }),
+        Animated.timing(halo, { toValue: 1, duration: 900, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+        Animated.timing(halo, { toValue: 0, duration: 900, easing: Easing.in(Easing.ease), useNativeDriver: true }),
       ]),
     );
     loop.start();

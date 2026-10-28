@@ -1,3 +1,4 @@
+export { RouteErrorBoundary as ErrorBoundary } from '@/components/RouteErrorBoundary';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -717,6 +718,26 @@ function GermanLesson({ lesson }: { lesson: LearningLesson }) {
       </ScrollView>
 
       <View style={styles.footer}>
+        {sessionState === 'unavailable' ? (
+          // Always-visible escape hatch: previously the recovery buttons lived
+          // inside the scroll content, so the footer looked permanently locked.
+          <View style={styles.footerRecovery}>
+            <Pressable
+              accessibilityRole="button"
+              style={styles.footerRecoverySecondary}
+              onPress={() => setRestoreRetry(value => value + 1)}
+            >
+              <Text style={styles.footerRecoverySecondaryText}>تلاش دوباره</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              style={styles.footerRecoveryPrimary}
+              onPress={continueWithoutRestore}
+            >
+              <Text style={styles.footerRecoveryPrimaryText}>شروع امن از ابتدای درس</Text>
+            </Pressable>
+          </View>
+        ) : null}
         <View style={styles.footerInner}>
           {canGoBack ? (
             <Pressable
@@ -1485,6 +1506,11 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     writingDirection: 'rtl',
   },
+  footerRecovery: { flexDirection: 'row-reverse', gap: 10, paddingHorizontal: 16, paddingBottom: 10 },
+  footerRecoverySecondary: { minHeight: 46, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, borderRadius: 14, borderWidth: 1, borderColor: Palette.border, backgroundColor: Palette.surface },
+  footerRecoverySecondaryText: { fontFamily: 'Vazir', fontSize: 12.5, fontWeight: '700', color: Palette.ink, writingDirection: 'rtl' },
+  footerRecoveryPrimary: { flex: 1, minHeight: 46, alignItems: 'center', justifyContent: 'center', borderRadius: 14, backgroundColor: Palette.primary },
+  footerRecoveryPrimaryText: { fontFamily: 'Vazir', fontSize: 13, fontWeight: '800', color: '#FFFFFF', writingDirection: 'rtl' },
   footer: {
     width: '100%',
     paddingHorizontal: 16,

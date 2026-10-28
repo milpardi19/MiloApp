@@ -1352,11 +1352,25 @@ export const getGermanSentenceResumeLesson = (
     ?? GERMAN_SENTENCE_LESSONS[GERMAN_SENTENCE_LESSONS.length - 1];
 };
 
+/**
+ * Fully static per-level counts. Cached because the screens call this several
+ * times per render and a full recompute walked all 4,715 German sentences.
+ */
+const germanLevelMetricsCache = new Map<GermanSentenceLevelId, {
+  lessonCount: number;
+  sentenceCount: number;
+  vocabularyCount: number;
+}>();
+
 export const germanSentenceLevelMetrics = (levelId: GermanSentenceLevelId) => {
+  const cached = germanLevelMetricsCache.get(levelId);
+  if (cached) return cached;
   const lessons = GERMAN_SENTENCE_LESSONS.filter(item => item.levelId === levelId);
-  return {
+  const computed = {
     lessonCount: lessons.length,
     sentenceCount: lessons.reduce((count, item) => count + item.sentences.length, 0),
     vocabularyCount: new Set(lessons.flatMap(item => item.sentences.flatMap(sentence => sentence.vocabulary.map(word => word.word)))).size,
   };
+  germanLevelMetricsCache.set(levelId, computed);
+  return computed;
 };

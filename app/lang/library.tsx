@@ -1,3 +1,4 @@
+export { RouteErrorBoundary as ErrorBoundary } from '@/components/RouteErrorBoundary';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -33,6 +34,10 @@ import { toPersianDigits } from '@/lib/format';
 
 const LESSONS_PER_GROUP = 10;
 const sentenceTotal = SENTENCE_LESSONS.reduce((total, lesson) => total + lesson.sentences.length, 0);
+// The unique-vocabulary count is static; build it once instead of on each render.
+const ALL_ENGLISH_WORDS: ReadonlySet<string> = new Set(
+  SENTENCE_LESSONS.flatMap(item => item.sentences.flatMap(sentence => sentence.vocabulary.map(word => word.word))),
+);
 
 function lessonStatus(lesson: SentenceLesson, progress: CourseProgress | null, study: StudyState | null) {
   if (progress?.completedLessonIds.includes(lesson.id)) return 'تکمیل‌شده';
@@ -72,10 +77,14 @@ export default function EnglishLessonList() {
 
   const lessons = useMemo(() => selected ? SENTENCE_LESSONS.filter(item => item.levelId === selected.id) : [], [selected?.id]);
   const completedIds = progress?.completedLessonIds ?? [];
-  const completed = lessons.filter(item => completedIds.includes(item.id)).length;
-  const metrics = selected ? getEnglishLevelMetrics(selected.id, completedIds) : null;
+  // Memoized: per-render recomputation over 3,862 sentences caused the library
+  // screen to stutter on device.
+  const completedKey = completedIds.join('|');
+  const completedIdSet = useMemo(() => new Set(completedKey ? completedKey.split('|') : []), [completedKey]);
+  const completed = useMemo(() => lessons.filter(item => completedIdSet.has(item.id)).length, [lessons, completedIdSet]);
+  const metrics = useMemo(() => (selected ? getEnglishLevelMetrics(selected.id, [...completedIdSet]) : null), [selected?.id, completedIdSet]);
   const blueprint = selected ? ENGLISH_ENGINE_BLUEPRINT.find(item => item.levelId === selected.id) : null;
-  const advancedComposition = getAdvancedContentComposition();
+  const advancedComposition = useMemo(() => getAdvancedContentComposition(), []);
   const lessonGroups = useMemo(() => {
     const collections = selected?.id === 4
       ? [
@@ -93,11 +102,15 @@ export default function EnglishLessonList() {
   }, [lessons, selected?.id]);
   const activeLesson = SENTENCE_LESSONS.find(item => item.id === progress?.currentLessonId) ?? SENTENCE_LESSONS[0];
   const activeLevelId = activeLesson.levelId;
-  const counts = Object.fromEntries(COURSE_LEVELS.map(item => {
-    const value = getEnglishLevelMetrics(item.id, completedIds);
+  // One pass over the level metrics per progress change, reused by every card.
+  const levelMetricsByLevel = useMemo(() => {
+    const completed = [...completedIdSet];
+    return Object.fromEntries(COURSE_LEVELS.map(item => [item.id, getEnglishLevelMetrics(item.id, completed)]));
+  }, [completedIdSet]);
+  const counts = useMemo(() => Object.fromEntries(COURSE_LEVELS.map(item => {
+    const value = levelMetricsByLevel[item.id];
     return [item.id, { completed: value.completedLessonCount, total: value.lessonCount }];
-  }));
-  const allWords = new Set(SENTENCE_LESSONS.flatMap(item => item.sentences.flatMap(sentence => sentence.vocabulary.map(word => word.word))));
+  })), [levelMetricsByLevel]);
 
   const openLevel = (levelId: CourseLevelId) => router.push({ pathname: '/lang/library', params: { level: String(levelId) } } as never);
   const openFirstLesson = () => {
@@ -134,7 +147,7 @@ export default function EnglishLessonList() {
                   <View style={styles.overviewMetricDivider} />
                   <View style={styles.overviewMetric}><Text style={styles.overviewMetricValue}>{toPersianDigits(sentenceTotal)}</Text><Text style={styles.overviewMetricLabel}>جمله‌های کاربردی</Text></View>
                   <View style={styles.overviewMetricDivider} />
-                  <View style={styles.overviewMetric}><Text style={styles.overviewMetricValue}>{toPersianDigits(allWords.size)}</Text><Text style={styles.overviewMetricLabel}>واژهٔ یکتا</Text></View>
+                  <View style={styles.overviewMetric}><Text style={styles.overviewMetricValue}>{toPersianDigits(ALL_ENGLISH_WORDS.size)}</Text><Text style={styles.overviewMetricLabel}>واژهٔ یکتا</Text></View>
                 </View>
                 <Pressable
                   accessibilityRole="button"
@@ -167,7 +180,7 @@ export default function EnglishLessonList() {
 
               <View style={styles.levelList}>
                 {COURSE_LEVELS.map(item => {
-                  const stats = getEnglishLevelMetrics(item.id, completedIds);
+                  const stats = levelMetricsByLevel[item.id];
                   const pct = stats.lessonCount ? (stats.completedLessonCount / stats.lessonCount) * 100 : 0;
                   const accent = ENGLISH_LEVEL_GRADIENTS[item.id][0];
                   return (

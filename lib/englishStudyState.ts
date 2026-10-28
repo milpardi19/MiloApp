@@ -38,34 +38,90 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 const validSkills = new Set<Skill>(['reading', 'listening', 'writing', 'grammar']);
 
+/**
+ * Reads the study state defensively.
+ *
+ * Earlier versions validated the *whole* blob at once and threw when a single
+ * record was stale (for example a session saved by an older build whose stage
+ * count differed). One bad record then blocked every English lesson with an
+ * unrecoverable "session could not be read" screen. Each record is now checked
+ * on its own: valid records are kept, unusable ones are dropped and simply
+ * restart that one lesson. Only an unreadable JSON document or a foreign root
+ * shape still throws, and that error is surfaced with a retry/safe-restart UI.
+ */
+function sanitizeSession(value: unknown): LessonSession | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const session = value as Partial<LessonSession>;
+  if (!Number.isInteger(session.stage) || session.stage! < 0 || session.stage! >= ENGLISH_ENGINE_STEPS.length) return null;
+  if (!Number.isInteger(session.sentenceIndex) || session.sentenceIndex! < 0) return null;
+  if (typeof session.revealed !== 'boolean' || typeof session.evidencePassed !== 'boolean') return null;
+  return {
+    stage: session.stage!,
+    sentenceIndex: session.sentenceIndex!,
+    revealed: session.revealed,
+    evidencePassed: session.evidencePassed,
+  };
+}
+
+function sanitizeEvidenceResults(value: unknown): Record<string, CourseLessonEvidence> | null {
+  if (!isRecord(value)) return null;
+  const results: Record<string, CourseLessonEvidence> = {};
+  let dropped = false;
+  for (const [taskId, entry] of Object.entries(value)) {
+    const result = entry as Partial<CourseLessonEvidence> | null | undefined;
+    if (!result || !validSkills.has(result.skill as Skill) || typeof result.correct !== 'boolean'
+      || typeof result.heard !== 'boolean' || !Number.isSafeInteger(result.attempts) || result.attempts! < 1) {
+      dropped = true;
+      continue;
+    }
+    results[taskId] = { skill: result.skill as Skill, correct: result.correct, heard: result.heard, attempts: result.attempts! };
+  }
+  return dropped ? results : (value as Record<string, CourseLessonEvidence>);
+}
+
 export function parseStudy(raw: string | null): StudyState {
   if (raw === null) return { version: 1, sessions: {}, days: {}, lessonEvidence: {} };
-  const parsed = JSON.parse(raw) as Partial<StudyState> | null;
-  if (!parsed || parsed.version !== 1 || !isRecord(parsed.sessions) || !isRecord(parsed.days)
-    || Object.values(parsed.days).some(value => typeof value !== 'number' || !Number.isFinite(value) || value < 0)
-    || Object.values(parsed.sessions).some(value => !value || !Number.isInteger(value.stage)
-      || value.stage < 0 || value.stage >= ENGLISH_ENGINE_STEPS.length
-      || !Number.isInteger(value.sentenceIndex) || value.sentenceIndex < 0
-      || typeof value.revealed !== 'boolean' || typeof value.evidencePassed !== 'boolean')) {
+  let parsed: Partial<StudyState> | null;
+  try {
+    parsed = JSON.parse(raw) as Partial<StudyState> | null;
+  } catch {
+    throw Error('اطلاعات جلسه خوانده نشد؛ داده‌های قبلی بازنویسی نشدند.');
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
+    || parsed.version !== 1 || !isRecord(parsed.sessions) || !isRecord(parsed.days)) {
     throw Error('اطلاعات جلسه خوانده نشد؛ داده‌های قبلی بازنویسی نشدند.');
   }
 
-  // Keep existing v1 learner data readable; older records simply have no lessonEvidence field.
-  const lessonEvidence = parsed.lessonEvidence ?? {};
-  if (!isRecord(lessonEvidence) || Object.values(lessonEvidence).some(results => !isRecord(results)
-    || Object.values(results).some(result => !result || !validSkills.has(result.skill as Skill)
-      || typeof result.correct !== 'boolean' || typeof result.heard !== 'boolean'
-      || !Number.isSafeInteger(result.attempts) || result.attempts < 1))) {
-    throw Error('سنجش درس معتبر نیست؛ داده‌های قبلی بازنویسی نشدند.');
+  const sessions: Record<string, LessonSession> = {};
+  for (const [lessonId, entry] of Object.entries(parsed.sessions)) {
+    const session = sanitizeSession(entry);
+    if (session) sessions[lessonId] = session;
   }
 
-  return {
-    ...parsed,
-    version: 1,
-    sessions: parsed.sessions as Record<string, LessonSession>,
-    days: parsed.days as Record<string, number>,
-    lessonEvidence: lessonEvidence as Record<string, Record<string, CourseLessonEvidence>>,
-  };
+  const days: Record<string, number> = {};
+  for (const [day, value] of Object.entries(parsed.days)) {
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) days[day] = value;
+  }
+
+  // Keep existing v1 learner data readable; older records simply have no lessonEvidence field.
+  const rawEvidence = parsed.lessonEvidence === undefined || parsed.lessonEvidence === null ? {} : parsed.lessonEvidence;
+  if (!isRecord(rawEvidence)) throw Error('سنجش درس معتبر نیست؛ داده‌های قبلی بازنویسی نشدند.');
+  const lessonEvidence: Record<string, Record<string, CourseLessonEvidence>> = {};
+  for (const [lessonId, results] of Object.entries(rawEvidence)) {
+    const clean = sanitizeEvidenceResults(results);
+    if (clean && Object.keys(clean).length) lessonEvidence[lessonId] = clean;
+  }
+
+  return { version: 1, sessions, days, lessonEvidence };
+}
+
+/** Recovery helpers: used by the lesson screen's escape hatch, never automatically. */
+export function resetLessonSession(lessonId: string) {
+  return update(state => { delete state.sessions[lessonId]; });
+}
+
+export function resetAllLessonSessions() {
+  return update(state => { state.sessions = {}; });
 }
 
 export async function loadStudy(): Promise<StudyState> {

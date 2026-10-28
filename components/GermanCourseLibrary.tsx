@@ -89,21 +89,32 @@ export default function GermanCourseLibrary() {
     return groups;
   }, [selectedLessons]);
   const completedIds = progress?.completedLessonIds ?? [];
+  // Memoized over the completed-lesson signature so scrolling and expanding
+  // groups no longer re-scans the whole course.
+  const completedKey = completedIds.join('|');
+  const completedSet = useMemo(() => new Set(completedKey ? completedKey.split('|') : []), [completedKey]);
 
-  const levelRows = GERMAN_SENTENCE_LEVELS.map(level => {
+  const levelRows = useMemo(() => GERMAN_SENTENCE_LEVELS.map(level => {
     const lessons = GERMAN_SENTENCE_LESSONS.filter(lesson => lesson.levelId === level.id);
     const metrics = germanSentenceLevelMetrics(level.id);
-    const completed = lessons.filter(lesson => completedIds.includes(lesson.id)).length;
+    let completed = 0;
+    for (const lesson of lessons) if (completedSet.has(lesson.id)) completed += 1;
     return { level, lessons, metrics, completed };
-  });
-  const activeLesson = getGermanSentenceResumeLesson(progress?.currentLessonId, completedIds);
+  }), [completedSet]);
+  const activeLesson = useMemo(
+    () => getGermanSentenceResumeLesson(progress?.currentLessonId, completedIds),
+    [progress?.currentLessonId, completedKey],
+  );
   const activeLevelId = activeLesson?.levelId ?? 0;
-  const railCounts = Object.fromEntries(levelRows.map(row => [row.level.id, {
+  const railCounts = useMemo(() => Object.fromEntries(levelRows.map(row => [row.level.id, {
     completed: row.completed,
     total: row.metrics.lessonCount,
-  }])) as Partial<Record<CourseLevelId, { completed: number; total: number }>>;
+  }])) as Partial<Record<CourseLevelId, { completed: number; total: number }>>, [levelRows]);
   const selectedMetrics = selectedLevel ? germanSentenceLevelMetrics(selectedLevel.id) : null;
-  const selectedCompleted = selectedLessons.filter(lesson => completedIds.includes(lesson.id)).length;
+  const selectedCompleted = useMemo(
+    () => selectedLessons.filter(lesson => completedSet.has(lesson.id)).length,
+    [selectedLessons, completedSet],
+  );
   const selectedPercent = selectedMetrics?.lessonCount ? (selectedCompleted / selectedMetrics.lessonCount) * 100 : 0;
 
   const openLevel = (id: number) => router.push(`/learn/de/library?level=${id}` as never);

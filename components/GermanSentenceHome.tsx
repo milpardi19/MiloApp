@@ -91,21 +91,28 @@ export default function GermanSentenceHome() {
   }, []);
 
   const completedIds = progress?.completedLessonIds ?? [];
-  const completed = GERMAN_SENTENCE_LESSONS.filter(lesson => completedIds.includes(lesson.id)).length;
-  const currentLesson = getGermanSentenceResumeLesson(progress?.currentLessonId, completedIds);
+  // Memoized over the completed-lesson signature: the previous version filtered
+  // the whole 95-lesson course for every level on every render.
+  const completedKey = completedIds.join('|');
+  const completedSet = useMemo(() => new Set(completedKey ? completedKey.split('|') : []), [completedKey]);
+  const completed = useMemo(() => GERMAN_SENTENCE_LESSONS.filter(lesson => completedSet.has(lesson.id)).length, [completedSet]);
+  const currentLesson = useMemo(() => getGermanSentenceResumeLesson(progress?.currentLessonId, completedIds), [progress?.currentLessonId, completedKey]);
   const currentLevel = GERMAN_RAIL_LEVELS.find(level => level.id === currentLesson.levelId) ?? GERMAN_RAIL_LEVELS[0];
   const currentSentence = currentLesson.sentences[0];
   const currentMetrics = germanSentenceLevelMetrics(currentLevel.id);
-  const currentCompleted = GERMAN_SENTENCE_LESSONS.filter(lesson => lesson.levelId === currentLevel.id && completedIds.includes(lesson.id)).length;
-  const levelRows = GERMAN_RAIL_LEVELS.map(level => {
+  const levelRows = useMemo(() => GERMAN_RAIL_LEVELS.map(level => {
     const metrics = germanSentenceLevelMetrics(level.id);
-    const done = GERMAN_SENTENCE_LESSONS.filter(lesson => lesson.levelId === level.id && completedIds.includes(lesson.id)).length;
+    let done = 0;
+    for (const lesson of GERMAN_SENTENCE_LESSONS) {
+      if (lesson.levelId === level.id && completedSet.has(lesson.id)) done += 1;
+    }
     return { level, metrics, completed: done };
-  });
-  const levelCounts = Object.fromEntries(levelRows.map(row => [row.level.id, {
+  }), [completedSet]);
+  const currentCompleted = levelRows.find(row => row.level.id === currentLevel.id)?.completed ?? 0;
+  const levelCounts = useMemo(() => Object.fromEntries(levelRows.map(row => [row.level.id, {
     completed: row.completed,
     total: row.metrics.lessonCount,
-  }])) as Partial<Record<CourseLevelId, { completed: number; total: number }>>;
+  }])) as Partial<Record<CourseLevelId, { completed: number; total: number }>>, [levelRows]);
   const lessonCount = GERMAN_SENTENCE_LESSONS.length;
   const { totalSentenceCount, uniqueWordCount } = useMemo(() => ({
     totalSentenceCount: GERMAN_SENTENCE_LESSONS.reduce((count, lesson) => count + lesson.sentences.length, 0),

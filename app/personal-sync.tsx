@@ -47,10 +47,15 @@ export default function PersonalSyncScreen() {
     setError('');
     setMessage('در حال ادغام غیرحذفی پیشرفت دو زبان و یادداشت‌های تلفظ…');
     try {
-      const result = await syncPersonalLearningData();
+      // Manual action: never throttled by the automatic-sync cooldown.
+      const result = await syncPersonalLearningData({ force: true });
       if (result.status === 'signed-out') {
         setAccountEmail('');
         setMessage('برای همگام‌سازی، ابتدا با ایمیل وارد شوید. سابقهٔ محلی شما محفوظ است.');
+        return;
+      }
+      if (result.status === 'skipped') {
+        setMessage('همگام‌سازی در همین لحظه در حال اجراست؛ چند لحظه بعد دوباره بررسی کنید. سابقهٔ محلی محفوظ است.');
         return;
       }
       setAccountEmail(result.email);

@@ -25,6 +25,24 @@ import {
 
 export { COMMUNICATION_COURSE_LESSON_IDS, COMMUNICATION_LESSON_UNIT, COMMUNICATION_MODULES };
 
+/**
+ * Curriculum assertions run in development and CI (`npm run validate:content`)
+ * and are skipped in production builds.
+ *
+ * These checks used to `throw` while the module was being evaluated. In a
+ * release build that happens before React renders, so neither an error
+ * boundary nor any screen could catch it: one content drift turned the English
+ * course — and the whole app — into a hard crash on launch. Production now
+ * logs a warning and keeps the lesson data usable; CI still fails loudly.
+ */
+const STRICT_CONTENT_CHECKS = process.env.NODE_ENV !== 'production';
+
+function assertContent(condition: boolean, message: string): void {
+  if (condition) return;
+  if (STRICT_CONTENT_CHECKS) throw new Error(message);
+  console.warn(`[course-content] ${message}`);
+}
+
 export type CourseLevelId = 0 | 1 | 2 | 3 | 4;
 
 export interface CourseSentence {
@@ -371,16 +389,12 @@ export const FOUNDATION_EXPANSION_LESSON_IDS = [
 const foundationExpansionIds = new Set<string>(FOUNDATION_EXPANSION_LESSON_IDS);
 const selectedFoundationLessons = FOUNDATION_SURVIVAL_EXPANSION_LESSONS
   .filter(lesson => foundationExpansionIds.has(lesson.id));
-if (selectedFoundationLessons.length !== FOUNDATION_EXPANSION_LESSON_IDS.length) {
-  throw new Error('A selected Foundation lesson is missing from its source.');
-}
+assertContent(selectedFoundationLessons.length === FOUNDATION_EXPANSION_LESSON_IDS.length, 'A selected Foundation lesson is missing from its source.');
 
 const FOUNDATION_EXPANSION_INSERTION_ORDER = 3;
 const FOUNDATION_EXPANSION_LESSONS = selectedFoundationLessons.map((lesson, index) => {
   const completionSentences = FOUNDATION_COMPLETION_SENTENCES[lesson.id] ?? [];
-  if (lesson.sentences.length !== 10 || completionSentences.length !== 40) {
-    throw new Error(`Foundation lesson ${lesson.id} must have ten prepared and forty completion sentences.`);
-  }
+  assertContent(lesson.sentences.length === 10 && completionSentences.length === 40, `Foundation lesson ${lesson.id} must have ten prepared and forty completion sentences.`);
   return {
     ...lesson,
     order: FOUNDATION_EXPANSION_INSERTION_ORDER + index + 1,
@@ -426,9 +440,7 @@ export const SURVIVAL_COURSE_LESSON_IDS = [
 const survivalExpansionIds = new Set<string>(SURVIVAL_EXPANSION_LESSON_IDS);
 const selectedSurvivalLessons = FOUNDATION_SURVIVAL_EXPANSION_LESSONS
   .filter(lesson => survivalExpansionIds.has(lesson.id));
-if (selectedSurvivalLessons.length !== SURVIVAL_EXPANSION_LESSON_IDS.length) {
-  throw new Error('A selected Survival expansion lesson is missing from its source.');
-}
+assertContent(selectedSurvivalLessons.length === SURVIVAL_EXPANSION_LESSON_IDS.length, 'A selected Survival expansion lesson is missing from its source.');
 
 const SURVIVAL_EXPANSION_INSERTION_ORDER = 12;
 const SURVIVAL_EXPANSION_LESSONS = selectedSurvivalLessons.map((lesson, index) => ({
@@ -476,9 +488,7 @@ export const EVERYDAY_COURSE_LESSON_IDS = [
 const everydayExpansionIds = new Set<string>(EVERYDAY_EXPANSION_LESSON_IDS);
 const selectedEverydayLessons = EVERYDAY_EXPANSION_LESSONS
   .filter(lesson => everydayExpansionIds.has(lesson.id));
-if (selectedEverydayLessons.length !== EVERYDAY_EXPANSION_LESSON_IDS.length) {
-  throw new Error('A selected Everyday English expansion lesson is missing from its source.');
-}
+assertContent(selectedEverydayLessons.length === EVERYDAY_EXPANSION_LESSON_IDS.length, 'A selected Everyday English expansion lesson is missing from its source.');
 
 const EVERYDAY_EXPANSION_INSERTION_ORDER = 34;
 const EVERYDAY_EXPANSION_INSERTION_LESSONS = selectedEverydayLessons.map((lesson, index) => ({
@@ -497,52 +507,56 @@ const COURSE_LESSONS_BEFORE_SURVIVAL_COMPLETION: SentenceLesson[] = [
 const survivalLessonIds = new Set<string>(SURVIVAL_COURSE_LESSON_IDS);
 const survivalLessonsBeforeCompletion = COURSE_LESSONS_BEFORE_SURVIVAL_COMPLETION.filter(lesson => lesson.levelId === 1);
 const survivalCompletionIds = Object.keys(SURVIVAL_COMPLETION_SENTENCES);
-if (survivalLessonsBeforeCompletion.map(lesson => lesson.id).join('|') !== SURVIVAL_COURSE_LESSON_IDS.join('|')
-  || survivalCompletionIds.length !== SURVIVAL_COURSE_LESSON_IDS.length
-  || survivalCompletionIds.some(id => !survivalLessonIds.has(id))) {
-  throw new Error('The Survival completion data must match the stable 19-lesson A1 course order.');
-}
+assertContent(
+  survivalLessonsBeforeCompletion.map(lesson => lesson.id).join('|') === SURVIVAL_COURSE_LESSON_IDS.join('|')
+    && survivalCompletionIds.length === SURVIVAL_COURSE_LESSON_IDS.length
+    && survivalCompletionIds.every(id => survivalLessonIds.has(id)),
+  'The Survival completion data must match the stable 19-lesson A1 course order.',
+);
 
 const communicationLessonsBeforeCompletion = COURSE_LESSONS_BEFORE_SURVIVAL_COMPLETION.filter(lesson => lesson.levelId === 3);
 const communicationCompletionIds = Object.keys(COMMUNICATION_COMPLETION_SENTENCES);
-if (communicationLessonsBeforeCompletion.map(lesson => lesson.id).join('|') !== COMMUNICATION_COURSE_LESSON_IDS.join('|')
-  || communicationCompletionIds.length !== COMMUNICATION_COURSE_LESSON_IDS.length
-  || communicationCompletionIds.some(id => !COMMUNICATION_COURSE_LESSON_IDS.includes(id as typeof COMMUNICATION_COURSE_LESSON_IDS[number]))) {
-  throw new Error('The Communication completion data must match the stable fifteen-lesson course order.');
-}
+assertContent(
+  communicationLessonsBeforeCompletion.map(lesson => lesson.id).join('|') === COMMUNICATION_COURSE_LESSON_IDS.join('|')
+    && communicationCompletionIds.length === COMMUNICATION_COURSE_LESSON_IDS.length
+    && communicationCompletionIds.every(id => COMMUNICATION_COURSE_LESSON_IDS.includes(id as typeof COMMUNICATION_COURSE_LESSON_IDS[number])),
+  'The Communication completion data must match the stable fifteen-lesson course order.',
+);
 
 const everydayLessonsBeforeCompletion = COURSE_LESSONS_BEFORE_SURVIVAL_COMPLETION.filter(lesson => lesson.levelId === 2);
 const everydayCompletionIds = Object.keys(EVERYDAY_COMPLETION_SENTENCES);
-if (everydayLessonsBeforeCompletion.map(lesson => lesson.id).join('|') !== EVERYDAY_COURSE_LESSON_IDS.join('|')
-  || everydayCompletionIds.length !== EVERYDAY_COURSE_LESSON_IDS.length
-  || everydayCompletionIds.some(id => !EVERYDAY_COURSE_LESSON_IDS.includes(id as typeof EVERYDAY_COURSE_LESSON_IDS[number]))) {
-  throw new Error('The Everyday completion data must match the stable 20-lesson course order.');
-}
+assertContent(
+  everydayLessonsBeforeCompletion.map(lesson => lesson.id).join('|') === EVERYDAY_COURSE_LESSON_IDS.join('|')
+    && everydayCompletionIds.length === EVERYDAY_COURSE_LESSON_IDS.length
+    && everydayCompletionIds.every(id => EVERYDAY_COURSE_LESSON_IDS.includes(id as typeof EVERYDAY_COURSE_LESSON_IDS[number])),
+  'The Everyday completion data must match the stable 20-lesson course order.',
+);
 const originalEverydayLessonIds = new Set<string>(EVERYDAY_COURSE_LESSON_IDS.slice(0, 5));
 
 export const SENTENCE_LESSONS: SentenceLesson[] = COURSE_LESSONS_BEFORE_SURVIVAL_COMPLETION.map(lesson => {
   if (lesson.levelId === 3) {
     const additions = COMMUNICATION_COMPLETION_SENTENCES[lesson.id as keyof typeof COMMUNICATION_COMPLETION_SENTENCES];
-    if (!additions || lesson.sentences.length !== 6 || additions.length !== 44) {
-      throw new Error(`Communication lesson ${lesson.id} must preserve its six prepared examples and add forty-four.`);
-    }
-    if (additions.some(sentence => !sentence.en || !sentence.fa || !sentence.pronunciation
-      || !sentence.pattern || sentence.vocabulary.length < 2
-      || sentence.vocabulary.some(({ word, meaning }) => !word || !meaning || !sentence.en.toLowerCase().includes(word.toLowerCase())))) {
-      throw new Error(`Communication completion sentences for ${lesson.id} must include translations, pronunciation, patterns, and sentence-linked vocabulary.`);
-    }
+    assertContent(!!additions && lesson.sentences.length === 6 && additions.length === 44, `Communication lesson ${lesson.id} must preserve its six prepared examples and add forty-four.`);
+    assertContent(
+      !additions.some(sentence => !sentence.en || !sentence.fa || !sentence.pronunciation
+        || !sentence.pattern || sentence.vocabulary.length < 2
+        || sentence.vocabulary.some(({ word, meaning }) => !word || !meaning || !sentence.en.toLowerCase().includes(word.toLowerCase()))),
+      `Communication completion sentences for ${lesson.id} must include translations, pronunciation, patterns, and sentence-linked vocabulary.`,
+    );
 
     const sentences = [...lesson.sentences, ...additions];
     const normalizedExamples = sentences.map(sentence => sentence.en.trim().toLowerCase()
       .replace(/[.!?]+$/g, '').replace(/[’']/g, "'").replace(/\s+/g, ' '));
-    if (sentences.length !== 50
-      || new Set(sentences.map(sentence => sentence.id)).size !== 50
-      || new Set(normalizedExamples).size !== 50) {
-      throw new Error(`Communication lesson ${lesson.id} must have fifty unique sentence IDs and examples.`);
-    }
+    assertContent(
+      sentences.length === 50
+        && new Set(sentences.map(sentence => sentence.id)).size === 50
+        && new Set(normalizedExamples).size === 50,
+      `Communication lesson ${lesson.id} must have fifty unique sentence IDs and examples.`,
+    );
 
     const unit = COMMUNICATION_LESSON_UNIT[lesson.id];
-    if (!unit) throw new Error(`Communication lesson ${lesson.id} is missing its thematic unit.`);
+    assertContent(!!unit, `Communication lesson ${lesson.id} is missing its thematic unit.`);
+    if (!unit) return lesson;
     return {
       ...lesson,
       durationMinutes: 35,
@@ -556,22 +570,21 @@ export const SENTENCE_LESSONS: SentenceLesson[] = COURSE_LESSONS_BEFORE_SURVIVAL
   if (lesson.levelId === 2) {
     const additions = EVERYDAY_COMPLETION_SENTENCES[lesson.id as keyof typeof EVERYDAY_COMPLETION_SENTENCES];
     const expectedBaseCount = originalEverydayLessonIds.has(lesson.id) ? 6 : 10;
-    if (!additions || lesson.sentences.length !== expectedBaseCount || additions.length !== 50 - expectedBaseCount) {
-      throw new Error(`Everyday lesson ${lesson.id} must preserve its prepared examples and add enough to reach fifty.`);
-    }
-    if (additions.some(sentence => !sentence.en || !sentence.fa || !sentence.pronunciation
-      || !sentence.pattern || sentence.vocabulary.length < 2
-      || sentence.vocabulary.some(({ word, meaning }) => !word || !meaning || !sentence.en.toLowerCase().includes(word.toLowerCase())))) {
-      throw new Error(`Everyday completion sentences for ${lesson.id} must include translations, pronunciation, patterns, and sentence-linked vocabulary.`);
-    }
+    assertContent(!!additions && lesson.sentences.length === expectedBaseCount && additions.length === 50 - expectedBaseCount, `Everyday lesson ${lesson.id} must preserve its prepared examples and add enough to reach fifty.`);
+    assertContent(
+      !additions.some(sentence => !sentence.en || !sentence.fa || !sentence.pronunciation
+        || !sentence.pattern || sentence.vocabulary.length < 2
+        || sentence.vocabulary.some(({ word, meaning }) => !word || !meaning || !sentence.en.toLowerCase().includes(word.toLowerCase()))),
+      `Everyday completion sentences for ${lesson.id} must include translations, pronunciation, patterns, and sentence-linked vocabulary.`,
+    );
 
     const sentences = [...lesson.sentences, ...additions];
     const normalizedExamples = sentences.map(sentence => sentence.en.trim().toLowerCase()
       .replace(/[.!?]+$/g, '').replace(/[’']/g, "'").replace(/\s+/g, ' '));
-    if (new Set(sentences.map(sentence => sentence.id)).size !== 50
-      || new Set(normalizedExamples).size !== 50) {
-      throw new Error(`Everyday lesson ${lesson.id} must have fifty unique sentence IDs and examples.`);
-    }
+    assertContent(
+      new Set(sentences.map(sentence => sentence.id)).size === 50 && new Set(normalizedExamples).size === 50,
+      `Everyday lesson ${lesson.id} must have fifty unique sentence IDs and examples.`,
+    );
 
     return { ...lesson, durationMinutes: 35, sentences };
   }
@@ -579,19 +592,19 @@ export const SENTENCE_LESSONS: SentenceLesson[] = COURSE_LESSONS_BEFORE_SURVIVAL
   if (lesson.levelId !== 1) return lesson;
 
   const additions = SURVIVAL_COMPLETION_SENTENCES[lesson.id];
-  if (!additions || lesson.sentences.length + additions.length !== 50) {
-    throw new Error(`Survival lesson ${lesson.id} must contain exactly fifty sentence examples.`);
-  }
-  if (additions.some(sentence => !sentence.en || !sentence.fa || !sentence.pronunciation
-    || !sentence.pattern || sentence.vocabulary.length === 0)) {
-    throw new Error(`Survival completion sentences for ${lesson.id} must include translation, pronunciation, pattern, and linked vocabulary.`);
-  }
+  assertContent(!!additions && lesson.sentences.length + additions.length === 50, `Survival lesson ${lesson.id} must contain exactly fifty sentence examples.`);
+  assertContent(
+    !additions.some(sentence => !sentence.en || !sentence.fa || !sentence.pronunciation
+      || !sentence.pattern || sentence.vocabulary.length === 0),
+    `Survival completion sentences for ${lesson.id} must include translation, pronunciation, pattern, and linked vocabulary.`,
+  );
 
   const sentences = [...lesson.sentences, ...additions];
-  if (new Set(sentences.map(sentence => sentence.id)).size !== 50
-    || new Set(sentences.map(sentence => sentence.en.trim().toLowerCase())).size !== 50) {
-    throw new Error(`Survival lesson ${lesson.id} must have fifty unique sentence IDs and examples.`);
-  }
+  assertContent(
+    new Set(sentences.map(sentence => sentence.id)).size === 50
+      && new Set(sentences.map(sentence => sentence.en.trim().toLowerCase())).size === 50,
+    `Survival lesson ${lesson.id} must have fifty unique sentence IDs and examples.`,
+  );
 
   return { ...lesson, durationMinutes: 35, sentences };
 });

@@ -21,7 +21,30 @@ const MAX_RETRIES = 4;
 
 type PersonalSyncResult =
   | { status: 'signed-out' }
-  | { status: 'synced'; email: string; updatedAt: string };
+  | { status: 'synced'; email: string; updatedAt: string }
+  /** Automatic sync was coalesced/throttled on purpose; nothing is wrong. */
+  | { status: 'skipped'; reason: 'throttled' | 'in-flight' };
+
+/**
+ * Automatic syncs are bounded. Before this, every local save (the English
+ * study timer writes every 5 s) queued a full sync that re-read ~45 storage
+ * keys and up to four 12 s network attempts. On a slow or filtered connection
+ * the queue grew without limit, which is what made English and German lessons
+ * gradually freeze on device.
+ */
+const MIN_SYNC_INTERVAL_MS = 60_000;
+const MAX_BACKOFF_MS = 10 * 60_000;
+const SIGNED_OUT_COOLDOWN_MS = 5 * 60_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      value => { clearTimeout(timer); resolve(value); },
+      error => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -152,7 +175,19 @@ function cloudSafeEnglish(extras: EnglishSyncExtras) {
 }
 
 async function performSync(): Promise<PersonalSyncResult> {
-  const { data: authData, error: authError } = await supabase.auth.getSession();
+  // `getSession()` refreshes an expired token over the network and has no
+  // timeout of its own; a blocked host used to stall every later sync forever.
+  let authData: Awaited<ReturnType<typeof supabase.auth.getSession>>['data'];
+  let authError: Awaited<ReturnType<typeof supabase.auth.getSession>>['error'];
+  try {
+    ({ data: authData, error: authError } = await withTimeout(
+      supabase.auth.getSession(),
+      8000,
+      'نشست حساب پاسخ نداد؛ پیشرفت محلی محفوظ است.',
+    ));
+  } catch (error) {
+    throw error instanceof Error ? error : new Error('نشست حساب خوانده نشد؛ پیشرفت محلی محفوظ است.');
+  }
   if (authError) throw new Error('نشست حساب خوانده نشد؛ پیشرفت محلی محفوظ است.');
   const user = authData.session?.user;
   // Anonymous Supabase identities are device-specific. Cross-device personal
@@ -267,18 +302,57 @@ async function performSync(): Promise<PersonalSyncResult> {
 }
 
 let serialQueue: Promise<unknown> = Promise.resolve();
-export function syncPersonalLearningData(): Promise<PersonalSyncResult> {
+let inFlight: Promise<PersonalSyncResult> | null = null;
+let nextAllowedAt = 0;
+let consecutiveFailures = 0;
+
+/**
+ * Runs one sync at a time. Concurrent callers share the in-flight promise
+ * instead of queuing a new full merge, and automatic callers are throttled
+ * (60 s after a success, exponential backoff up to 10 min after a failure).
+ * The manual "sync now" screen passes `force: true` to bypass the throttle.
+ */
+export function syncPersonalLearningData(options: { force?: boolean } = {}): Promise<PersonalSyncResult> {
+  if (inFlight) return Promise.resolve({ status: 'skipped', reason: 'in-flight' });
+  if (!options.force && Date.now() < nextAllowedAt) {
+    return Promise.resolve({ status: 'skipped', reason: 'throttled' });
+  }
+
   const job = serialQueue.then(performSync, performSync);
   serialQueue = job.catch(() => undefined);
-  return job;
+  inFlight = job;
+
+  return job.then(
+    result => {
+      if (result.status === 'synced') {
+        consecutiveFailures = 0;
+        nextAllowedAt = Date.now() + MIN_SYNC_INTERVAL_MS;
+      } else if (result.status === 'signed-out') {
+        nextAllowedAt = Date.now() + SIGNED_OUT_COOLDOWN_MS;
+      }
+      return result;
+    },
+    error => {
+      consecutiveFailures += 1;
+      const backoff = Math.min(MAX_BACKOFF_MS, 30_000 * 2 ** Math.min(consecutiveFailures - 1, 5));
+      nextAllowedAt = Date.now() + backoff;
+      throw error;
+    },
+  ).finally(() => {
+    inFlight = null;
+  });
 }
 
 let scheduledTimer: ReturnType<typeof setTimeout> | undefined;
-/** Best-effort debounced upload after local saves; callers never block a lesson on network access. */
+/**
+ * Best-effort debounced upload after local saves; callers never block a lesson
+ * on network access. Throttled syncs resolve immediately, so a lesson that
+ * saves every few seconds spends no time on the network.
+ */
 export function schedulePersonalLearningSync() {
   if (scheduledTimer) clearTimeout(scheduledTimer);
   scheduledTimer = setTimeout(() => {
     scheduledTimer = undefined;
     void syncPersonalLearningData().catch(() => undefined);
-  }, 500);
+  }, 1500);
 }

@@ -192,10 +192,41 @@ async function uploadProgress(progress: CourseProgress): Promise<void> {
   }
 }
 
+/**
+ * Writes progress only when it actually changed.
+ *
+ * The stored document grows to hundreds of kilobytes (one review card per
+ * finished sentence), and the previous version wrote it twice on every save:
+ * once as a backup and once as the live value. A lesson therefore wrote
+ * ~800 KB every few seconds, which stalled the "saving…" state and wore down
+ * flash storage. The backup is now taken at most once per app session, and a
+ * corrupt stored value no longer aborts the write (that used to make saving
+ * fail forever once the blob was damaged).
+ */
+let backupTakenThisSession = false;
+
 async function saveProgress(progress: CourseProgress): Promise<CourseProgress> {
-  const old=await readRaw();
-  if(old!==null){normalizeProgress(JSON.parse(old));if(Platform.OS==='web')window.localStorage.setItem(KEY+'_backup_v1',old);else await AsyncStorage.setItem(KEY+'_backup_v1',old);}
-  await writeRaw(JSON.stringify(progress));
+  const next = JSON.stringify(progress);
+  const old = await readRaw();
+  if (old === next) return progress; // Nothing to store.
+
+  if (old !== null && !backupTakenThisSession) {
+    try {
+      normalizeProgress(JSON.parse(old));
+    } catch {
+      // Keep the damaged bytes aside, then let the good value replace them so
+      // the learner is no longer blocked from saving.
+    }
+    backupTakenThisSession = true;
+    try {
+      if (Platform.OS === 'web') window.localStorage.setItem(KEY + '_backup_v1', old);
+      else await AsyncStorage.setItem(KEY + '_backup_v1', old);
+    } catch {
+      // A failed backup must not block the actual save.
+    }
+  }
+
+  await writeRaw(next);
   if (!options.explicitCloudSync) await uploadProgress(progress);
   try { options.afterLocalSave?.(); } catch { /* Local progress is already safely stored. */ }
   return progress;

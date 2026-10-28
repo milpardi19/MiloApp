@@ -273,13 +273,13 @@ export function stopCloudNarration(): void {
       }
     }
   } else if (nativePlayer) {
+    // `finish()` below owns the single release; touching the player twice on a
+    // released SharedObject throws on Android.
     try {
       nativePlayer.pause();
-      nativePlayer.remove();
     } catch {
       // The player may already be released.
     }
-    nativePlayer = null;
   }
 
   finish?.();
@@ -338,30 +338,67 @@ function playWeb(url: string, cancelled: () => boolean, playbackRate: number): P
   });
 }
 
+/**
+ * Plays one sentence natively.
+ *
+ * Previously every sentence built a brand-new native player and waited only
+ * for `didJustFinish`. If playback never started (offline, corrupt file,
+ * audio focus lost) the promise never settled: the UI stayed on "preparing the
+ * voice", the native player was never released, and repeated sentences piled
+ * players up until the audio stack crashed. Now a watchdog always settles the
+ * promise, and the player is released exactly once.
+ */
+const NATIVE_START_TIMEOUT_MS = 8000;
+const NATIVE_MAX_DURATION_MS = 30000;
+
 function playNative(url: string, cancelled: () => boolean, playbackRate: number): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    const player = createAudioPlayer({ uri: url }, { updateInterval: 250, downloadFirst: true });
+    let player: AudioPlayer;
+    try {
+      player = createAudioPlayer({ uri: url }, { updateInterval: 250, downloadFirst: true });
+    } catch {
+      reject(new NarratorCloudUnavailableError('Narrator audio could not be created.'));
+      return;
+    }
     nativePlayer = player;
     let settled = false;
+    let started = false;
+    const timers: Array<ReturnType<typeof setTimeout>> = [];
+
     const finish = (error?: Error) => {
       if (settled) return;
       settled = true;
       playing = false;
+      timers.forEach(clearTimeout);
       if (finishCurrent === finish) finishCurrent = null;
-      try { player.remove(); } catch { /* ignore */ }
-      if (nativePlayer === player) nativePlayer = null;
+      if (nativePlayer === player) {
+        nativePlayer = null;
+        try { player.remove(); } catch { /* already released */ }
+      }
       if (error) reject(error);
       else resolve();
     };
     finishCurrent = finish;
 
     player.addListener('playbackStatusUpdate', status => {
+      if (settled) return;
       if (cancelled()) {
         finish();
         return;
       }
+      if (status.isLoaded) started = true;
+      if (status.isLoaded && typeof status.currentTime === 'number' && status.currentTime > 0) started = true;
       if (status.didJustFinish) finish();
     });
+
+    // Watchdog 1: the clip must start decoding quickly.
+    timers.push(setTimeout(() => {
+      if (!started && !settled) finish(new NarratorCloudUnavailableError('Narrator audio did not start in time.'));
+    }, NATIVE_START_TIMEOUT_MS));
+    // Watchdog 2: hard ceiling so a stalled player can never hang the lesson.
+    timers.push(setTimeout(() => {
+      if (!settled) finish();
+    }, NATIVE_MAX_DURATION_MS));
 
     try {
       player.playbackRate = playbackRate;
@@ -369,6 +406,7 @@ function playNative(url: string, cancelled: () => boolean, playbackRate: number)
       playing = true;
     } catch {
       finish(new NarratorCloudUnavailableError('Narrator audio could not start.'));
+      return;
     }
 
     if (cancelled()) finish();

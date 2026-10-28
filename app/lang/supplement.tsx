@@ -1,3 +1,4 @@
+export { RouteErrorBoundary as ErrorBoundary } from '@/components/RouteErrorBoundary';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';

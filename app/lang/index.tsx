@@ -1,4 +1,5 @@
-import { useCallback, useState } from 'react';
+export { RouteErrorBoundary as ErrorBoundary } from '@/components/RouteErrorBoundary';
+import { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -86,10 +87,16 @@ export default function LearningHome() {
   const currentBlueprint = ENGLISH_ENGINE_BLUEPRINT.find(level => level.levelId === currentLevel.id);
   const dailyGoal = progress?.dailyGoalMinutes ?? 10;
   const dailyPct = Math.min(100, dailyGoal ? (measuredMinutes / dailyGoal) * 100 : 0);
-  const levelCounts = Object.fromEntries(ENGLISH_RAIL_LEVELS.map(level => {
-    const metrics = getEnglishLevelMetrics(level.id, completedIds);
+  // Memoized: this used to walk every lesson of every level on each render.
+  const completedKey = completedIds.join('|');
+  const levelMetricsById = useMemo(() => {
+    const completed = completedKey ? completedKey.split('|') : [];
+    return Object.fromEntries(ENGLISH_RAIL_LEVELS.map(level => [level.id, getEnglishLevelMetrics(level.id, completed)]));
+  }, [completedKey]);
+  const levelCounts = useMemo(() => Object.fromEntries(ENGLISH_RAIL_LEVELS.map(level => {
+    const metrics = levelMetricsById[level.id];
     return [level.id, { completed: metrics.completedLessonCount, total: metrics.lessonCount }];
-  }));
+  })), [levelMetricsById]);
   const levelProgress = levelMetrics.lessonCount
     ? (levelMetrics.completedLessonCount / levelMetrics.lessonCount) * 100
     : 0;
@@ -238,7 +245,7 @@ export default function LearningHome() {
             {showRoadmap && (
               <View style={styles.fullRoadmap}>
                 {ENGLISH_RAIL_LEVELS.map(level => {
-                  const metrics = getEnglishLevelMetrics(level.id, completedIds);
+                  const metrics = levelMetricsById[level.id];
                   const passed = metrics.lessonCount > 0 && metrics.completedLessonCount === metrics.lessonCount;
                   return (
                     <Pressable

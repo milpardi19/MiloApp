@@ -80,19 +80,41 @@ export interface EnglishLevelMetrics {
   vocabularyCount: number;
 }
 
-export function getEnglishLevelMetrics(levelId: CourseLevelId, completedLessonIds: readonly string[] = []): EnglishLevelMetrics {
+/**
+ * Static per-level shape (lesson/sentence/pattern/vocabulary counts) never
+ * changes after the curriculum module loads, so it is computed once and reused.
+ * Only `completedLessonCount` depends on learner data. Screens call this on
+ * every render, so recomputing 3,862 sentences each time made the home and
+ * library screens stutter on device.
+ */
+type StaticEnglishLevelMetrics = Omit<EnglishLevelMetrics, 'completedLessonCount'>;
+const staticEnglishLevelMetrics = new Map<CourseLevelId, StaticEnglishLevelMetrics>();
+
+function staticMetricsFor(levelId: CourseLevelId): StaticEnglishLevelMetrics {
+  const cached = staticEnglishLevelMetrics.get(levelId);
+  if (cached) return cached;
   const lessons = SENTENCE_LESSONS.filter(lesson => lesson.levelId === levelId);
   const sentences = lessons.flatMap(lesson => lesson.sentences);
   const words = new Set(sentences.flatMap(sentence => sentence.vocabulary.map(item => item.word)));
-  const completed = new Set(completedLessonIds);
-  return {
+  const computed: StaticEnglishLevelMetrics = {
     levelId,
     lessonCount: lessons.length,
-    completedLessonCount: lessons.filter(lesson => completed.has(lesson.id)).length,
     sentenceCount: sentences.length,
     patternCount: sentences.filter(sentence => !!sentence.pattern).length,
     vocabularyCount: words.size,
   };
+  staticEnglishLevelMetrics.set(levelId, computed);
+  return computed;
+}
+
+export function getEnglishLevelMetrics(levelId: CourseLevelId, completedLessonIds: readonly string[] = []): EnglishLevelMetrics {
+  const base = staticMetricsFor(levelId);
+  const completed = new Set(completedLessonIds);
+  let completedLessonCount = 0;
+  for (const lesson of SENTENCE_LESSONS) {
+    if (lesson.levelId === levelId && completed.has(lesson.id)) completedLessonCount += 1;
+  }
+  return { ...base, completedLessonCount };
 }
 
 export function getAdvancedContentComposition() {

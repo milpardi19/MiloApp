@@ -1,3 +1,4 @@
+export { RouteErrorBoundary as ErrorBoundary } from '@/components/RouteErrorBoundary';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -37,7 +38,7 @@ import { ENGLISH_ENGINE_STEPS, getLessonPatterns, getLessonVocabulary } from '@/
 import { ENGLISH_LEVEL_GRADIENTS } from '@/components/EnglishUI';
 import { PageNavigation } from '@/components/PageNavigation';
 
-import { loadStudy, saveLessonSession, freshSession } from '@/lib/englishStudyState';
+import { loadStudy, saveLessonSession, freshSession, resetLessonSession } from '@/lib/englishStudyState';
 import { loadSupplement } from '@/lib/englishSupplement/progress';
 import { CORE_LESSON_EVIDENCE, isCoreLessonEvidenceComplete } from '@/lib/englishFoundationEvidence';
 import { useEnglishStudyTimer } from '@/components/useEnglishStudyTimer';
@@ -66,11 +67,13 @@ export default function SentenceLessonScreen() {
   const [sessionError,setSessionError]=useState('');
   const completing=useRef(false);
   const loadedLesson=useRef<string|null>(null);
+  const [restoreAttempt,setRestoreAttempt]=useState(0);
   const timer=useEnglishStudyTimer(sessionReady && !!getSentenceLesson(id || ''));
   useEffect(() => {
     let alive = true;
     loadedLesson.current = null;
     setSessionReady(false);
+    setSessionError('');
     setInvalidLesson(!!id && !getSentenceLesson(id));
     if (id && !getSentenceLesson(id)) return;
 
@@ -98,14 +101,21 @@ export default function SentenceLessonScreen() {
       if (alive) setSessionError('جلسه قبلی خوانده نشد؛ برای حفظ اطلاعات، ذخیره متوقف است. صفحه را دوباره باز کنید.');
     });
     return () => { alive = false; void Speech.stop(); };
-  }, [lesson.id, lesson.levelId, lesson.sentences.length, id]);
+  }, [lesson.id, lesson.levelId, lesson.sentences.length, id, restoreAttempt]);
   useEffect(()=>{if(sessionReady&&loadedLesson.current===lesson.id&&!completing.current)void saveLessonSession(lesson.id,{stage,sentenceIndex,revealed,evidencePassed}).then(()=>setSessionError('')).catch(()=>setSessionError('جلسه ذخیره نشد؛ دوباره یکی از کنترل‌های درس را بزنید تا ذخیره تکرار شود.'));},[lesson.id,sessionReady,stage,sentenceIndex,revealed,evidencePassed]);
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder, 250);
   const [evaluatingSpeech, setEvaluatingSpeech] = useState(false);
   const [speechResult, setSpeechResult] = useState<SpeechEvaluation | null>(null);
   const [speechError, setSpeechError] = useState<string | null>(null);
-  const current = lesson.sentences[sentenceIndex];
+  // Never index past the current lesson's length: lesson sizes differ (110 of
+  // the 174 English lessons hold 6 sentences while the rest hold 50), and an
+  // out-of-range read used to throw during render and take the whole app down.
+  const safeSentenceIndex = Math.max(0, Math.min(sentenceIndex, lesson.sentences.length - 1));
+  const current = lesson.sentences[safeSentenceIndex] ?? lesson.sentences[0];
+  useEffect(() => {
+    if (sentenceIndex !== safeSentenceIndex) setSentenceIndex(safeSentenceIndex);
+  }, [sentenceIndex, safeSentenceIndex]);
   const vocabulary = getLessonVocabulary(lesson);
   const grammarPatterns = getLessonPatterns(lesson);
 
@@ -151,10 +161,12 @@ export default function SentenceLessonScreen() {
 
   const selectListeningSentence = (index: number) => {
     if (recorderState.isRecording || evaluatingSpeech) return;
-    setSentenceIndex(index);
+    const target = Math.max(0, Math.min(index, lesson.sentences.length - 1));
+    setSentenceIndex(target);
     setSpeechResult(null);
     setSpeechError(null);
-    speak(lesson.sentences[index].en);
+    const targetSentence = lesson.sentences[target];
+    if (targetSentence) speak(targetSentence.en);
   };
 
   const lessonIndex = SENTENCE_LESSONS.findIndex(item => item.id === lesson.id);
@@ -167,6 +179,24 @@ export default function SentenceLessonScreen() {
     : stage > 0
       ? 'مرحلهٔ قبلی'
       : 'درس قبلی';
+
+  /**
+   * Escape hatch for an unreadable stored session: drop only this lesson's
+   * record, then continue from the first stage. Course progress and review
+   * cards are untouched.
+   */
+  const startLessonFromScratch = () => {
+    setStage(0);
+    setSentenceIndex(0);
+    setRevealed(false);
+    setEvidencePassed(false);
+    setSpeechResult(null);
+    setSpeechError(null);
+    setSessionError('');
+    void resetLessonSession(lesson.id).catch(() => undefined).finally(() => {
+      setRestoreAttempt(value => value + 1);
+    });
+  };
 
   const restartCurrentLesson = () => {
     if (recorderState.isRecording || evaluatingSpeech || saving) return;
@@ -245,7 +275,41 @@ export default function SentenceLessonScreen() {
   };
 
   if (invalidLesson) return <View style={styles.root}><PageNavigation backFallback="/lang/library" /><Text style={styles.stageDesc}>درس پیدا نشد.</Text><Pressable accessibilityRole="button" onPress={()=>router.replace('/lang/library' as never)}><Text style={styles.stageTitle}>فهرست درس‌ها</Text></Pressable></View>;
-  if (!sessionReady) return <View style={styles.root}><PageNavigation backFallback="/lang" /><Text style={styles.stageDesc}>{sessionError || 'در حال بازیابی جلسه…'}</Text></View>;
+  // A failed restore must never become a dead end: offer retry and a safe
+  // restart that keeps the stored progress untouched.
+  if (!sessionReady && sessionError) {
+    return (
+      <View style={styles.root}>
+        <PageNavigation backFallback="/lang" />
+        <View style={styles.recoveryCard}>
+          <Text accessibilityRole="alert" style={styles.recoveryTitle}>جلسهٔ قبلی این درس بازیابی نشد</Text>
+          <Text style={styles.recoveryText}>{sessionError}</Text>
+          <Text style={styles.recoveryHint}>پیشرفت محفوظ شما پاک نمی‌شود؛ فقط محل آخرین توقف خوانده نشد.</Text>
+          <Pressable
+            accessibilityRole="button"
+            style={styles.recoveryPrimary}
+            onPress={() => setRestoreAttempt(value => value + 1)}
+          >
+            <RefreshCw size={17} color={Colors.onColor} />
+            <Text style={styles.recoveryPrimaryText}>تلاش دوباره</Text>
+          </Pressable>
+          <View style={styles.recoveryRow}>
+            <Pressable
+              accessibilityRole="button"
+              style={styles.recoverySecondary}
+              onPress={startLessonFromScratch}
+            >
+              <Text style={styles.recoverySecondaryText}>شروع امن از ابتدای درس</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" style={styles.recoverySecondary} onPress={() => router.replace('/lang' as never)}>
+              <Text style={styles.recoverySecondaryText}>بازگشت به خانه</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    );
+  }
+  if (!sessionReady) return <View style={styles.root}><PageNavigation backFallback="/lang" /><Text style={styles.stageDesc}>در حال بازیابی جلسه…</Text><Text style={styles.stageDesc}>اگر این پیام بیش از چند ثانیه ماند، صفحه را ببندید و دوباره باز کنید.</Text></View>;
   return (
     <View style={styles.root} onTouchStart={timer.interact}>
       <LinearGradient colors={ENGLISH_LEVEL_GRADIENTS[courseLevel.id]} start={{ x: .95, y: 0 }} end={{ x: .05, y: 1 }} style={styles.header}>
@@ -348,7 +412,7 @@ export default function SentenceLessonScreen() {
                 <Volume2 size={25} color={Colors.onColor} />
               </Pressable>
               <Text style={styles.english}>{current.en}</Text>
-              <Text style={[styles.pronunciation,current.pronunciation.startsWith('/ ')&&{fontFamily:'Inter-ExtraBold',writingDirection:'ltr'}]}>{current.pronunciation}</Text>
+              <Text style={[styles.pronunciation,(current.pronunciation ?? '').startsWith('/ ')&&{fontFamily:'Inter-ExtraBold',writingDirection:'ltr'}]}>{current.pronunciation}</Text>
               {lesson.order >= 89 && <Text style={styles.hint}>راهنمای واجی آمریکایی از واژه‌نامه؛ بدون تکیه و پیوند گفتار. واژه داخل کروشه آوانویسی نشده است. برای آهنگ جمله به صدا گوش دهید.</Text>}
               <View style={styles.divider} />
               <Text style={styles.persian}>{current.fa}</Text>
@@ -588,6 +652,15 @@ export default function SentenceLessonScreen() {
 }
 
 const styles = StyleSheet.create({
+  recoveryCard: { margin: 18, padding: 20, gap: 12, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, backgroundColor: Palette.surface },
+  recoveryTitle: { fontFamily: Typography.fontFamily, fontSize: 17, fontWeight: Typography.weights.bold, color: Palette.ink, textAlign: 'right', writingDirection: 'rtl' },
+  recoveryText: { fontFamily: Typography.fontFamily, fontSize: 13.5, lineHeight: 22, color: Palette.text, textAlign: 'right', writingDirection: 'rtl' },
+  recoveryHint: { fontFamily: Typography.fontFamily, fontSize: 12.5, lineHeight: 20, color: Palette.muted, textAlign: 'right', writingDirection: 'rtl' },
+  recoveryPrimary: { flexDirection: 'row-reverse', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 48, borderRadius: Radius.lg, backgroundColor: Palette.primary },
+  recoveryPrimaryText: { fontFamily: Typography.fontFamily, fontSize: 14, fontWeight: Typography.weights.bold, color: Colors.onColor, writingDirection: 'rtl' },
+  recoveryRow: { flexDirection: 'row-reverse', gap: 10 },
+  recoverySecondary: { flex: 1, minHeight: 46, alignItems: 'center', justifyContent: 'center', borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.border, backgroundColor: Palette.surfaceMuted, paddingHorizontal: 10 },
+  recoverySecondaryText: { fontFamily: Typography.fontFamily, fontSize: 12.5, fontWeight: Typography.weights.bold, color: Palette.ink, textAlign: 'center', writingDirection: 'rtl' },
   root: { flex: 1, backgroundColor: Palette.canvas },
   header: { width: '100%', paddingTop: 18, paddingHorizontal: 18, paddingBottom: 16, gap: 10, borderBottomLeftRadius: 26, borderBottomRightRadius: 26, shadowColor: '#091533', shadowOpacity: 0.16, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 4 },
   headerTop: { width: '100%', maxWidth: 840, alignSelf: 'center', flexDirection: 'row-reverse', alignItems: 'center', gap: 12 },
