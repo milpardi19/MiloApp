@@ -18,6 +18,7 @@ on:
       - arena/78e12bfa-app2
       - arena/b8803353-app2
       - arena/76386211-app2
+      - arena/f028e0e1-miloapp
 
 permissions:
   contents: write
@@ -306,7 +307,7 @@ jobs:
           retention-days: 3
 
       - name: Confirm all 4 release APKs are ready
-        if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[apk-release]') }}
+        if: ${{ always() && github.event_name == 'push' && contains(github.event.head_commit.message, '[apk-release]') }}
         run: |
           if [ "${{ env.EXPO_PUBLIC_RUSSIAN_ONLY }}" != "true" ]; then
             test -s 1-MiloAdmin.apk
@@ -316,7 +317,7 @@ jobs:
           fi
 
       - name: Publish direct APK downloads (Ordered 1 to 4)
-        if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[apk-release]') && env.EXPO_PUBLIC_RUSSIAN_ONLY != 'true' }}
+        if: ${{ always() && github.event_name == 'push' && contains(github.event.head_commit.message, '[apk-release]') && env.EXPO_PUBLIC_RUSSIAN_ONLY != 'true' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: milomultilang-android-${{ github.run_number }}
