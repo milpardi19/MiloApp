@@ -142,6 +142,8 @@ export * as languages from '@/lib/languages/catalog';
 export * as german from '@/lib/languages/german';
 export * as germanSentenceCourse from '@/lib/languages/germanSentenceCourse';
 export * as germanSentenceSession from '@/lib/languages/germanSentenceSession';
+export * as germanPreA1Expansion from '@/lib/languages/germanPreA1Expansion';
+export * as germanA1Expansion from '@/lib/languages/germanA1SentenceExpansion';
 export * as features from '@/lib/features';
 export * as firstMeeting from '@/lib/languages/germanFirstMeeting';
 export * as unitProgress from '@/lib/languages/unitProgress';
@@ -440,12 +442,19 @@ export { default as asyncStorage } from '${STUBS}/async-storage.js';
   section('Multilingual content and progress isolation');
   const englishHomeSource = readFileSync(path.join(APP, 'app/lang/index.tsx'), 'utf8');
   const englishLibrarySource = readFileSync(path.join(APP, 'app/lang/library.tsx'), 'utf8');
-  const englishBottomNavSource = readFileSync(path.join(APP, 'components/AppBottomNav.tsx'), 'utf8');
-  const todayHeaderStyle = englishHomeSource.match(/sectionHeader:\s*\{([^}]+)\}/)?.[1] ?? '';
+  // `AppBottomNav` is a thin wrapper; the entries and the shell style live in the
+  // shared `LanguageBottomNav` used by all four courses.
+  const englishBottomNavSource = readFileSync(path.join(APP, 'components/LanguageBottomNav.tsx'), 'utf8');
+  // The section-header style now lives in the shared luxuryHomeStyles module and
+  // the home screen labels its sections in bilingual eyebrow/title pairs.
+  const englishHomeStylesSource = readFileSync(path.join(APP, 'components/luxuryHomeStyles.ts'), 'utf8');
+  const todayHeaderStyle = englishHomeStylesSource.match(/sectionHeader:\s*\{([^}]+)\}/)?.[1] ?? '';
   const bottomNavShellStyle = englishBottomNavSource.match(/shell:\s*\{([^}]+)\}/)?.[1] ?? '';
-  check('English Today heading stays right-aligned in RTL without changing its labels', /flexDirection:\s*'row-reverse'/.test(todayHeaderStyle) && englishHomeSource.includes('TODAY AT A GLANCE') && englishHomeSource.includes('برنامهٔ امروز'));
+  check('English Today heading stays right-aligned in RTL and keeps its bilingual labels', /flexDirection:\s*'row-reverse'/.test(todayHeaderStyle) && englishHomeSource.includes('PROGRESS OVERVIEW') && englishHomeSource.includes('خلاصهٔ پیشرفت') && englishHomeSource.includes('PRACTICE STUDIO') && englishHomeSource.includes('بخش‌های تمرین'));
   check('English level cards show unique vocabulary counts calculated from each level', /metrics\.vocabularyCount/.test(englishHomeSource) && englishHomeSource.includes('واژهٔ یکتا') && /stats\.vocabularyCount/.test(englishLibrarySource) && englishLibrarySource.includes('واژهٔ یکتا'));
-  check('English bottom navigation places Learning on the right, Conversation in the center, and Review on the left', /flexDirection:\s*'row-reverse'/.test(bottomNavShellStyle) && /path:\s*'\/lang',\s*label:\s*'یادگیری'/.test(englishBottomNavSource) && /path:\s*'\/conversations',\s*label:\s*'مکالمه'/.test(englishBottomNavSource) && /path:\s*'\/review',\s*label:\s*'مرور'/.test(englishBottomNavSource));
+  const navLabelIndex = ['خانه', 'یادگیری', 'تلفظ', 'مکالمه', 'درس‌ها', 'مرور']
+    .map(label => englishBottomNavSource.indexOf(`label: '${label}'`));
+  check('English bottom navigation renders right-to-left with Learning right of Conversation and Review last', /flexDirection:\s*'row-reverse'/.test(bottomNavShellStyle) && navLabelIndex.every(index => index >= 0) && navLabelIndex[1] < navLabelIndex[3] && navLabelIndex[3] < navLabelIndex[5] && englishBottomNavSource.includes("home: '/lang'") && englishBottomNavSource.includes("review: '/review'"));
   const archivedGerman = app.german.GERMAN_LESSONS;
   check('Archived German legacy source remains isolated from the new course', archivedGerman.length === 12 && archivedGerman.every(l => l.id.startsWith('de-')));
   const germanCourse = app.germanSentenceCourse.GERMAN_SENTENCE_LESSONS;
@@ -453,19 +462,34 @@ export { default as asyncStorage } from '${STUBS}/async-storage.js';
   const germanLevels = app.germanSentenceCourse.GERMAN_SENTENCE_LEVELS;
   check('German sentence course has four ordered teaching levels and ninety-five lessons', germanLevels.map(level => level.cefr).join('|') === 'Pre-A1|A1|A2|B1' && germanCourse.length === 95);
   const preA1Course = germanCourse.filter(lesson => lesson.levelId === 0);
-  check('Pre-A1 has twenty lessons, one thousand sentences and 396 unique vocabulary entries', preA1Course.length === 20 && app.germanSentenceCourse.germanSentenceLevelMetrics(0).sentenceCount === 1000 && app.germanSentenceCourse.germanSentenceLevelMetrics(0).vocabularyCount === 396);
-  check('Pre-A1 lessons are sequential, fifty sentences each, and match all twenty topic chips', preA1Course.every((lesson, index) => lesson.order === index + 1 && lesson.sentences.length === 50 && new Set(lesson.sentences.map(sentence => sentence.text)).size === 50 && lesson.title === germanLevels[0].modules[index]));
+  // The course build removes exact duplicate sentence forms that later packs
+  // repeated (first occurrence wins; the five preserved base examples always
+  // stay). The raw packs still hold 1,000 Pre-A1 / 1,250 A1 examples, so the
+  // shipped totals are pinned together with the replay check further down that
+  // regenerates this catalog from the raw packs.
+  const PRE_A1_SHIPPED_SENTENCES = 970; // 1,000 raw − 30 removed repeats
+  const A1_SHIPPED_SENTENCES = 1245;    // 1,250 raw − 5 removed repeats
+  check('Pre-A1 has twenty lessons, 970 shipped sentences and 396 unique vocabulary entries', preA1Course.length === 20 && app.germanSentenceCourse.germanSentenceLevelMetrics(0).sentenceCount === PRE_A1_SHIPPED_SENTENCES && app.germanSentenceCourse.germanSentenceLevelMetrics(0).vocabularyCount === 396);
+  check('Pre-A1 lessons are sequential, forty to fifty unique sentences each, and match all twenty topic chips', preA1Course.every((lesson, index) => lesson.order === index + 1 && lesson.sentences.length >= 40 && lesson.sentences.length <= 50 && new Set(lesson.sentences.map(sentence => sentence.id)).size === lesson.sentences.length && new Set(lesson.sentences.map(sentence => sentence.text)).size === lesson.sentences.length && lesson.title === germanLevels[0].modules[index]));
   check('the twelve existing Pre-A1 lesson IDs stay first and eight bridge lessons follow', preA1Course.slice(0, 12).map(lesson => lesson.id).join('|') === 'de-v2-greetings|de-v2-name-origin|de-v2-classroom|de-v2-numbers-time|de-v2-basic-needs|de-v2-alphabet|de-v2-countries-languages|de-v2-days-calendar|de-v2-personal-details|de-v2-food-drink|de-v2-objects-colors|de-v2-places-directions' && preA1Course.slice(12).map(lesson => lesson.id).join('|') === 'de-v2-core-verbs-pronouns|de-v2-questions-negation|de-v2-family-basics|de-v2-home-rooms|de-v2-daily-routine-basics|de-v2-shopping-prices|de-v2-feelings-health|de-v2-integrated-dialogues');
-  check('each of 1,000 Pre-A1 sentence examples has translated, pronounced vocabulary entries', preA1Course.flatMap(lesson => lesson.sentences).length === 1000 && preA1Course.flatMap(lesson => lesson.sentences).every(sentence => sentence.fa && sentence.pronunciation && sentence.vocabulary.length && sentence.vocabulary.every(entry => entry.word && entry.meaning)));
+  check('each of the 970 Pre-A1 sentence examples has translated, pronounced vocabulary entries', preA1Course.flatMap(lesson => lesson.sentences).length === PRE_A1_SHIPPED_SENTENCES && preA1Course.flatMap(lesson => lesson.sentences).every(sentence => sentence.fa && sentence.pronunciation && sentence.vocabulary.length && sentence.vocabulary.every(entry => entry.word && entry.meaning)));
   const a1Course = germanCourse.filter(lesson => lesson.levelId === 1);
-  check('A1 has twenty-five lessons, 1,250 sentence examples and 587 unique vocabulary entries', a1Course.length === 25 && app.germanSentenceCourse.germanSentenceLevelMetrics(1).sentenceCount === 1250 && app.germanSentenceCourse.germanSentenceLevelMetrics(1).vocabularyCount === 587);
-  check('A1 lessons are sequential, fifty sentences each, and match all twenty-five topic chips', a1Course.every((lesson, index) => lesson.order === index + 1 && lesson.sentences.length === 50 && new Set(lesson.sentences.map(sentence => sentence.text)).size === 50 && lesson.durationMinutes === 25 && lesson.title === germanLevels[1].modules[index]));
+  check('A1 has twenty-five lessons, 1,245 shipped sentences and 587 unique vocabulary entries', a1Course.length === 25 && app.germanSentenceCourse.germanSentenceLevelMetrics(1).sentenceCount === A1_SHIPPED_SENTENCES && app.germanSentenceCourse.germanSentenceLevelMetrics(1).vocabularyCount === 587);
+  check('A1 lessons are sequential, forty-nine to fifty unique sentences each, and match all twenty-five topic chips', a1Course.every((lesson, index) => lesson.order === index + 1 && lesson.sentences.length >= 49 && lesson.sentences.length <= 50 && new Set(lesson.sentences.map(sentence => sentence.id)).size === lesson.sentences.length && new Set(lesson.sentences.map(sentence => sentence.text)).size === lesson.sentences.length && lesson.durationMinutes === 25 && lesson.title === germanLevels[1].modules[index]));
   check('the five existing A1 lesson IDs stay first and twenty A1 topics follow', a1Course.slice(0, 5).map(lesson => lesson.id).join('|') === 'de-v2-family|de-v2-daily-routine|de-v2-cafe-food|de-v2-shopping|de-v2-city-transport' && a1Course.slice(5).map(lesson => lesson.id).join('|') === 'de-v2-a1-home-neighborhood|de-v2-a1-work-day|de-v2-a1-calendar-appointments|de-v2-a1-free-time|de-v2-a1-weather-seasons|de-v2-a1-health-appointment|de-v2-a1-travel-hotel|de-v2-a1-language-class|de-v2-a1-contact-forms|de-v2-a1-invitations|de-v2-a1-weekend-past|de-v2-a1-clothing-shopping|de-v2-a1-food-preferences|de-v2-a1-post-office|de-v2-a1-describing-people-things|de-v2-a1-household-tasks|de-v2-a1-train-station|de-v2-a1-phone-messages|de-v2-a1-lost-and-found|de-v2-a1-integrated-conversation');
-  check('each of the 1,125 new A1 examples has a stable ID, unique text, Persian translation, pronunciation and vocabulary', a1Course.every(lesson => lesson.sentences.slice(5).length === 45 && new Set(lesson.sentences.map(sentence => sentence.text)).size === 50 && lesson.sentences.slice(5).every((sentence, index) => sentence.id === `${lesson.id}-extra-${String(index + 1).padStart(2, '0')}` && sentence.text && sentence.fa && sentence.pronunciation && sentence.vocabulary.length && sentence.vocabulary.every(entry => entry.word && entry.meaning))));
+  check('each of the 1,120 appended A1 examples has a stable ordered ID, translation, pronunciation and vocabulary', a1Course.every(lesson => {
+    const added = lesson.sentences.slice(5);
+    const numbers = added.map(sentence => Number(sentence.id.slice(`${lesson.id}-extra-`.length)));
+    return added.length >= 44 && added.length <= 45
+      && new Set(lesson.sentences.map(sentence => sentence.id)).size === lesson.sentences.length
+      && added.every(sentence => sentence.id.startsWith(`${lesson.id}-extra-`) && sentence.text && sentence.fa && sentence.pronunciation && sentence.vocabulary.length && sentence.vocabulary.every(entry => entry.word && entry.meaning))
+      // IDs stay ordered; a gap is exactly one removed duplicate, so they never renumber.
+      && numbers.every((number, index) => Number.isInteger(number) && number >= 1 && number <= 45 && (index === 0 || number > numbers[index - 1]));
+  }) && a1Course.flatMap(lesson => lesson.sentences.slice(5)).length === 1120);
   const newA1Samples = a1Course.flatMap(lesson => lesson.sentences.slice(5));
   const originalA1Texts = new Set(a1Course.flatMap(lesson => lesson.sentences.slice(0, 5)).map(sentence => sentence.text));
-  check('all appended A1 text is unique across lessons and avoids duplicates of preserved originals', newA1Samples.length === 1125 && new Set(newA1Samples.map(sentence => sentence.text)).size === 1125 && newA1Samples.every(sentence => !originalA1Texts.has(sentence.text)));
-  check('A1 provides complete word and phrase presentations across all examples', a1Course.flatMap(lesson => lesson.sentences).every(sentence => sentence.vocabulary.length > 0 && sentence.vocabulary.every(entry => entry.word.trim() && entry.meaning.trim())) && a1Course.flatMap(lesson => lesson.sentences).reduce((count, sentence) => count + sentence.vocabulary.length, 0) === 1493);
+  check('all appended A1 text is unique across lessons and avoids duplicates of preserved originals', newA1Samples.length === 1120 && new Set(newA1Samples.map(sentence => sentence.text)).size === 1120 && newA1Samples.every(sentence => !originalA1Texts.has(sentence.text)));
+  check('A1 provides complete word and phrase presentations across all examples', a1Course.flatMap(lesson => lesson.sentences).every(sentence => sentence.vocabulary.length > 0 && sentence.vocabulary.every(entry => entry.word.trim() && entry.meaning.trim())) && a1Course.flatMap(lesson => lesson.sentences).reduce((count, sentence) => count + sentence.vocabulary.length, 0) === 1488);
   const a2Course = germanCourse.filter(lesson => lesson.levelId === 2);
   check('A2 has twenty-five lessons, 1,250 examples and 716 distinct vocabulary entries', a2Course.length === 25 && app.germanSentenceCourse.germanSentenceLevelMetrics(2).sentenceCount === 1250 && app.germanSentenceCourse.germanSentenceLevelMetrics(2).vocabularyCount === 716);
   check('A2 preserves its five original lesson IDs and appends twenty ordered fifty-sentence topics', a2Course.slice(0, 5).map(lesson => lesson.id).join('|') === 'de-v2-weekend-past|de-v2-travel-stay|de-v2-health-appointment|de-v2-home-services|de-v2-invitations-plans' && a2Course.slice(5).length === 20 && a2Course.every((lesson, index) => lesson.order === index + 1 && lesson.sentences.length === 50 && lesson.durationMinutes === 30 && lesson.teachingFa.includes('نکتهٔ تکمیلی')));
@@ -482,7 +506,32 @@ export { default as asyncStorage } from '${STUBS}/async-storage.js';
   check('new A2/B1 sentences are unique and do not duplicate preserved Pre-A1/A1/A2/B1 samples', allAddedUpperExamples.length === 2250 && new Set(allAddedUpperExamples.map(sentence => sentence.text)).size === 2250 && allAddedUpperExamples.every(sentence => !preservedExampleTexts.has(sentence.text)));
   check('B1 modules align with lesson titles and preserve their original richer vocabulary lists and dialogue', b1Course.length === 25 && germanLevels[3].modules.length === 25 && b1Course.every((lesson, index) => (index < 5 || lesson.title === germanLevels[3].modules[index]) && lesson.dialogue.length >= 3 && lesson.dialogue.every(line => line.text && line.fa)) && b1Course.slice(5).flatMap(lesson => lesson.sentences.slice(0, 5)).every(sentence => sentence.vocabulary.length >= 4 && sentence.vocabulary.every(entry => entry.word.trim() && entry.meaning.trim())));
   check('B1 capstone is explicitly a non-scored integrated conversation', b1Course.at(-1)?.id === 'de-v2-b1-integrated-conversation' && b1Course.at(-1).teachingFa.includes('بدون نمره') && b1Course.at(-1).teachingFa.includes('نه آزمون'));
-  check('German catalog has 4,750 stable unique examples with Persian translation, pronunciation and vocabulary', germanSentences.length === 4750 && new Set(germanSentences.map(sentence => sentence.id)).size === germanSentences.length && germanSentences.every(sentence => sentence.text && sentence.fa && sentence.pronunciation && sentence.vocabulary.length && sentence.vocabulary.every(word => word.word && word.meaning)));
+  check('German catalog has 4,715 stable unique IDs with Persian translation, pronunciation and vocabulary', germanSentences.length === 4715 && new Set(germanSentences.map(sentence => sentence.id)).size === germanSentences.length && germanSentences.every(sentence => sentence.text && sentence.fa && sentence.pronunciation && sentence.vocabulary.length && sentence.vocabulary.every(word => word.word && word.meaning)));
+  // Independent replay of the documented build: base examples plus the raw
+  // expansion packs, with later exact repeats dropped. It must reproduce the
+  // shipped Pre-A1 + A1 catalog byte for byte, which proves the 35 removed
+  // repeats are only genuine duplicates.
+  const dedupeKey = (text) => text.normalize('NFC').toLocaleLowerCase('de-DE').replace(/[!?.,:;"“”„‚’'()\-]/g, '').replace(/\s+/g, ' ').trim();
+  const replayPacks = { 0: app.germanPreA1Expansion.PRE_A1_SENTENCE_ADDITIONS, 1: app.germanA1Expansion.A1_SENTENCE_ADDITIONS };
+  const replayedTexts = [];
+  const replayedSeen = new Set();
+  let replayedRawCount = 0;
+  for (const lesson of germanCourse.filter(item => item.levelId < 2)) {
+    const raw = [...lesson.sentences.slice(0, 5), ...(replayPacks[lesson.levelId][lesson.id] ?? [])];
+    replayedRawCount += raw.length;
+    raw.forEach((sentence, index) => {
+      const key = dedupeKey(sentence.text);
+      if (index < 5 || !replayedSeen.has(key)) replayedTexts.push(sentence.text);
+      replayedSeen.add(key);
+    });
+  }
+  const shippedPreA1A1Texts = germanCourse.filter(item => item.levelId < 2).flatMap(item => item.sentences.map(sentence => sentence.text));
+  check('the documented duplicate-removal rule reproduces the shipped Pre-A1 and A1 catalog exactly', replayedRawCount === 2250 && replayedTexts.length === shippedPreA1A1Texts.length && replayedTexts.every((text, index) => text === shippedPreA1A1Texts[index]));
+  // Repeated text is allowed only inside the five preserved base examples of a
+  // lesson; every appended example is unique.
+  const germanTextCounts = germanSentences.reduce((map, sentence) => map.set(sentence.text, (map.get(sentence.text) ?? 0) + 1), new Map());
+  const repeatedGermanTexts = [...germanTextCounts.entries()].filter(([, count]) => count > 1).map(([text]) => text);
+  check('repeated German sentence text occurs only inside the preserved base examples', repeatedGermanTexts.length === 21 && repeatedGermanTexts.every(text => germanCourse.some(lesson => lesson.sentences.slice(0, 5).some(sentence => sentence.text === text))));
   check('German lesson dialogues stay sentence-aligned and translated', germanCourse.every(lesson => lesson.dialogue.length >= 3 && lesson.dialogue.every(line => line.text && line.fa)));
   check('German lessons resolve only through the new sentence-first catalog', germanCourse.every(lesson => app.languages.findGermanLesson(lesson.id) === lesson) && app.languages.findGermanLesson(archivedGerman[0].id) === undefined);
   const retiredGermanRoutes = ['details.tsx', 'recap.tsx', 'completion.tsx', 'coverage.tsx', 'audio-check.tsx'];
@@ -493,9 +542,9 @@ export { default as asyncStorage } from '${STUBS}/async-storage.js';
   const scopedGermanRoutes = ['unit.tsx', 'practice.tsx', 'review.tsx'].map(file => readFileSync(path.join(APP, 'app', 'learn', '[language]', file), 'utf8'));
   check('only the published three-skill A1 module is reachable through German guided routes', scopedGermanRoutes.every(source => source.includes('de-a1-skills') && source.includes('Redirect') && source.includes('/learn/de/library')));
   const germanHomeSource = readFileSync(path.join(APP, 'components', 'GermanSentenceHome.tsx'), 'utf8');
-  check('German home exposes the reviewed A1 listening, reading and writing unit', germanHomeSource.includes('/learn/de/unit?unit=de-a1-skills') && germanHomeSource.includes('خواندن و پیام‌نویسی'));
+  check('German home exposes the reviewed A1 listening, reading and writing unit', germanHomeSource.includes('/learn/de/unit?unit=de-a1-skills') && germanHomeSource.includes('مهارت‌های A1'));
   const germanLessonRoute = readFileSync(path.join(APP, 'app', 'learn', '[language]', 'lesson.tsx'), 'utf8');
-  check('active German sentence lessons restore, save and clear per-lesson checkpoints', germanLessonRoute.includes('loadGermanSentenceSession') && germanLessonRoute.includes('saveGermanSentenceSession') && germanLessonRoute.includes('clearGermanSentenceSession') && germanLessonRoute.includes('جلسهٔ ذخیره‌شده بازیابی شد'));
+  check('active German sentence lessons restore, save and clear per-lesson checkpoints', germanLessonRoute.includes('loadGermanSentenceSession') && germanLessonRoute.includes('saveGermanSentenceSession') && germanLessonRoute.includes('clearGermanSentenceSession') && germanLessonRoute.includes('ادامه از جلسهٔ ذخیره‌شده'));
   const germanBackupRoute = readFileSync(path.join(APP, 'app', 'learn', '[language]', 'backup.tsx'), 'utf8');
   check('German home backup route exports and merges only German progress', germanBackupRoute.includes('germanProgress.exportProgress()') && germanBackupRoute.includes('germanProgress.restoreProgress(importText)'));
   check('German home links to its progress backup screen', germanHomeSource.includes("router.push('/learn/de/backup'"));
