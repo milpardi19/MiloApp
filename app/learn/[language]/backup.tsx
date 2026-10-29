@@ -5,7 +5,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { GermanCourseButton, GermanCoursePage, germanCourseStyles as s } from '@/components/GermanCourseUI';
 import { GermanPalette as Palette } from '@/components/germanTheme';
 import { toPersianDigits as fa } from '@/lib/format';
-import { germanProgress } from '@/lib/languages/catalog';
+import { germanProgress } from '@/lib/languages/germanLookup';
 import { GERMAN_SENTENCE_LESSONS } from '@/lib/languages/germanSentenceCourse';
 import type { CourseProgress } from '@/lib/createCourseProgressStore';
 

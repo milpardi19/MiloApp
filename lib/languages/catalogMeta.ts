@@ -108,4 +108,14 @@ export function findLanguageMeta(id: string | undefined): LanguageMeta | undefin
   return LANGUAGE_META.find(language => language.id === id);
 }
 
+/**
+ * Looks a language up from static metadata only. Screens that just need a
+ * label or a speech locale (for example the Russian and Turkish lesson views)
+ * use this instead of `lib/languages/catalog`, which evaluates all four course
+ * datasets.
+ */
+export function findLanguage(id: string | undefined): LanguageDefinition | undefined {
+  return LANGUAGES.find((language: LanguageDefinition) => language.id === id);
+}
+
 export type { LanguageId };

@@ -4,8 +4,32 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { isSupabaseConfigured } from './pairing';
 import { SUPABASE_PUBLIC_ANON_KEY, SUPABASE_PUBLIC_URL } from './supabaseConfig';
-import { SENTENCE_LESSONS } from './courseContent';
 import canonical from '../assets/data/essential504.json';
+
+/**
+ * The English curriculum (`lib/courseContent.ts` plus its expansion packs) is
+ * roughly 3 MB of literal data and, at module scope, used to build a Set of
+ * every lesson id. `educationAdmin` is imported by `lib/chatNotifications`,
+ * which `app/_layout.tsx` mounts on every cold start — so that 3 MB was parsed
+ * and evaluated *before the first frame* of every app, in every language,
+ * including builds where the user only opens German, Russian or Turkish.
+ *
+ * Nothing outside the admin panel needs those ids, and the admin panel is a
+ * separate APK, so the curriculum is now loaded on first use only.
+ */
+let englishLessonIndex: { ids: Set<string>; count: number } | null = null;
+
+function englishLessons(): { ids: Set<string>; count: number } {
+  if (!englishLessonIndex) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const course = require('./courseContent') as typeof import('./courseContent');
+    englishLessonIndex = {
+      ids: new Set(course.SENTENCE_LESSONS.map(lesson => lesson.id)),
+      count: course.SENTENCE_LESSONS.length,
+    };
+  }
+  return englishLessonIndex;
+}
 
 // Separate auth storage: signing into the panel must not replace the learner session.
 let client: SupabaseClient | null = null;
@@ -56,7 +80,6 @@ export interface RegisteredUser {
   last_seen_at: string;
 }
 
-const lessonIds = new Set(SENTENCE_LESSONS.map(l => l.id));
 const words = new Set<string>(canonical);
 
 function uniqueStringsCount(value: unknown): number {
@@ -70,7 +93,8 @@ export function progressMetrics(summary: Record<string, unknown> | null) {
   const finite = (value: unknown) =>
     typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 
-  const lessons = count(summary?.completedLessonIds, lessonIds);
+  const course = englishLessons();
+  const lessons = count(summary?.completedLessonIds, course.ids);
   const germanLessons = uniqueStringsCount(summary?.germanCompletedLessonIds);
   const russianLessons = uniqueStringsCount(summary?.russianCompletedLessonIds);
   const turkishLessons = uniqueStringsCount(summary?.turkishCompletedLessonIds);
@@ -78,7 +102,7 @@ export function progressMetrics(summary: Record<string, unknown> | null) {
 
   return {
     lessons,
-    percent: Math.round((lessons / SENTENCE_LESSONS.length) * 100),
+    percent: course.count > 0 ? Math.round((lessons / course.count) * 100) : 0,
     words: count(summary?.learnedEssential504Words, words),
     minutes: finite(summary?.totalMinutes),
     streak: finite(summary?.currentStreak),

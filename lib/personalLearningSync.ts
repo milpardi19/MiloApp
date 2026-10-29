@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { getCourseProgress } from './courseProgress';
 import { exportEnglishSyncExtras, mergeEnglishSyncExtras, type EnglishSyncExtras } from './englishBackup';
-import { germanProgress } from './languages/catalog';
+import { germanProgress } from './languages/germanLookup';
 import type { CourseProgress as StoreCourseProgress } from './createCourseProgressStore';
 import { ALL_GERMAN_PROGRESS_UNITS, GERMAN_UNITS } from './languages/germanUnits';
 import { getUnitProgress, mergeRemoteUnitProgress, type UnitProgress } from './languages/unitProgress';

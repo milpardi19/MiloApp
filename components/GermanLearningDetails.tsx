@@ -11,7 +11,7 @@ import Mic from 'lucide-react-native/dist/esm/icons/mic';
 import { GermanCoursePage as CoursePage, GermanCourseButton as CourseButton, germanCourseStyles as s } from '@/components/GermanCourseUI';
 import { GERMAN_ROADMAP } from '@/lib/languages/germanRoadmap';
 import { GERMAN_LESSONS } from '@/lib/languages/german';
-import { germanProgress } from '@/lib/languages/catalog';
+import { germanProgress } from '@/lib/languages/germanLookup';
 import { FIRST_MEETING } from '@/lib/languages/germanFirstMeeting';
 import { reviewForUnit } from '@/lib/languages/unitReview';
 import { GERMAN_UNITS, GERMAN_GUIDED_LESSON_COUNT, unitHref, unitReviewHref } from '@/lib/languages/germanUnits';

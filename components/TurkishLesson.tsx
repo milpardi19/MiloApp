@@ -28,7 +28,7 @@ import { LessonNarrator } from '@/components/LessonNarrator';
 import TurkishSentenceBuilder from '@/components/TurkishSentenceBuilder';
 import TurkishDialoguePractice from '@/components/TurkishDialoguePractice';
 import { clearTurkishLessonSession, loadTurkishLessonSession, saveTurkishLessonSession } from '@/lib/languages/turkishStudyState';
-import { findLanguage } from '@/lib/languages/catalog';
+import { findLanguage } from '@/lib/languages/catalogMeta';
 import { resolveSpeechOptions } from '@/lib/speechLanguage';
 import { TURKISH_LESSONS, TURKISH_LEVELS, TURKISH_LESSON_STAGES, turkishProgress, type TurkishCourseLesson } from '@/lib/languages/turkish';
 import type { TurkishLessonSession } from '@/lib/languages/turkishStudyState';

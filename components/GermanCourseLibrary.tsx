@@ -33,7 +33,7 @@ import {
   type GermanSentenceCourseLevel,
   type GermanSentenceLevelId,
 } from '@/lib/languages/germanSentenceCourse';
-import { germanProgress } from '@/lib/languages/catalog';
+import { germanProgress } from '@/lib/languages/germanLookup';
 import { clearGermanSentenceSession } from '@/lib/languages/germanSentenceSession';
 import type { CourseProgress } from '@/lib/createCourseProgressStore';
 

@@ -34,7 +34,7 @@ import {
   getGermanSentenceResumeLesson,
 } from '@/lib/languages/germanSentenceCourse';
 import { clearGermanSentenceSession, loadGermanSentenceSession } from '@/lib/languages/germanSentenceSession';
-import { germanProgress } from '@/lib/languages/catalog';
+import { germanProgress } from '@/lib/languages/germanLookup';
 import { syncPersonalLearningData } from '@/lib/personalLearningSync';
 import type { CourseProgress } from '@/lib/createCourseProgressStore';
 import { preloadSpeechVoices, resolveRequiredSpeechOptions } from '@/lib/speechLanguage';

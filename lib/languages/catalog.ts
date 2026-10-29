@@ -4,7 +4,6 @@ import { SENTENCE_LESSONS } from '../courseContent';
 import { GERMAN_SENTENCE_LESSONS } from './germanSentenceCourse';
 import { RUSSIAN_LESSONS, russianProgress } from './russian';
 import { TURKISH_LESSONS, turkishProgress } from './turkish';
-import { createCourseProgressStore } from '../createCourseProgressStore';
 
 export { LANGUAGES };
 export { russianProgress };
@@ -40,17 +39,11 @@ export function findLanguage(id: string | undefined) {
   return LANGUAGES.find((language: LanguageDefinition) => language.id === id);
 }
 
-export const germanProgress = createCourseProgressStore({
-  key: 'sentence_course_progress_de_v2',
-  lessons: GERMAN_SENTENCE_LESSONS,
-  cloudSync: false,
-  recordEstimatedTime: false,
-  afterLocalSave: () => {
-    void import('../personalLearningSync')
-      .then(({ schedulePersonalLearningSync }) => schedulePersonalLearningSync())
-      .catch(() => undefined);
-  },
-});
-export function findGermanLesson(id: string | undefined) { return GERMAN_SENTENCE_LESSONS.find(l => l.id === id); }
+/**
+ * Re-exported from the German-only module so German screens can import their
+ * own helpers without pulling English, Russian and Turkish course data into
+ * the same module evaluation. See `germanLookup.ts`.
+ */
+export { germanProgress, findGermanLesson, GERMAN_SENTENCE_LESSONS } from './germanLookup';
 
 export function findTurkishCourseLesson(id: string | undefined) { return TURKISH_LESSONS.find(l => l.id === id); }

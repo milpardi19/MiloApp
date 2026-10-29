@@ -17,7 +17,7 @@ import { CoursePage } from '@/components/LanguageCourseUI';
 import { EnglishPalette as Palette } from '@/components/EnglishSupplementTask';
 import { LuxuryPalette, setLastActiveLanguage } from '@/components/luxuryTheme';
 import { PageNavigation } from '@/components/PageNavigation';
-import { findGermanLesson, germanProgress } from '@/lib/languages/catalog';
+import { findGermanLesson, germanProgress } from '@/lib/languages/germanLookup';
 import { findRussianLesson, type RussianCourseLesson } from '@/lib/languages/russian';
 import { findTurkishLesson } from '@/lib/languages/turkish';
 import RussianLesson from '@/components/RussianLesson';

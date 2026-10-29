@@ -17,7 +17,7 @@ import { GermanBottomNav } from '@/components/GermanBottomNav';
 import { LuxuryTopBar } from '@/components/LuxuryLanguageShell';
 import { luxuryReviewStyles as styles } from '@/components/luxuryReviewStyles';
 import { LuxuryPalette } from '@/components/luxuryTheme';
-import { findGermanLesson, germanProgress } from '@/lib/languages/catalog';
+import { findGermanLesson, germanProgress } from '@/lib/languages/germanLookup';
 import type { CourseProgress, ReviewRating, SentenceReviewCard } from '@/lib/courseProgress';
 import { toPersianDigits as fa } from '@/lib/format';
 import { preloadSpeechVoices, resolveRequiredSpeechOptions } from '@/lib/speechLanguage';
